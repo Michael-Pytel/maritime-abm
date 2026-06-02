@@ -89,6 +89,13 @@ export interface WeatherChannels {
   wave_period?: number[];
 }
 
+export type WeatherChannel = keyof WeatherChannels;
+
+export interface WeatherMeta {
+  regime: string;
+  particle_seed?: number;
+}
+
 export interface TickMessage {
   step: number;
   vessels: VesselSnapshot[];
@@ -103,6 +110,9 @@ export interface TickMessage {
   weather_grid?: number[];
   weather_grid_size?: number;
   weather_channels?: WeatherChannels;
+  weather_meta?: WeatherMeta;
+  world_width_nm?: number;
+  world_height_nm?: number;
 }
 
 export interface BatchStatus {

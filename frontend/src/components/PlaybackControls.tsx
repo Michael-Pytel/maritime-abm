@@ -1,4 +1,4 @@
-import type { RunManifest, TickMessage } from "../types";
+import type { RunManifest, TickMessage, WeatherChannel } from "../types";
 import { SPEED_PRESETS, STRIDE_OPTIONS } from "../hooks/usePlayback";
 
 interface Props {
@@ -17,8 +17,8 @@ interface Props {
   onSetStride: (s: number) => void;
   loading: boolean;
   currentTick: TickMessage | null;
-  weatherChannel: string;
-  onSetWeatherChannel: (ch: string) => void;
+  weatherChannel: WeatherChannel;
+  onSetWeatherChannel: (ch: WeatherChannel) => void;
 }
 
 const METHOD_COLOR: Record<string, string> = {
@@ -91,7 +91,7 @@ export default function PlaybackControls({
           </span>
           <select
             value={weatherChannel}
-            onChange={e => onSetWeatherChannel(e.target.value)}
+            onChange={e => onSetWeatherChannel(e.target.value as WeatherChannel)}
             style={{
               background: "#1e293b", color: "#f1f5f9",
               border: "1px solid #334155", borderRadius: 6,

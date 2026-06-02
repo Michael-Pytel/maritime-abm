@@ -164,7 +164,7 @@ export default function StatsPanel() {
         n,
         kpis: Object.fromEntries(Object.keys(KPI_META).map(kpi => {
           const vals = rows.map(r => {
-            const v = r.kpi as Record<string, number>;
+            const v = r.kpi as unknown as Record<string, number>;
             return v[kpi] ?? 0;
           });
           const stats = computeBoxStats(vals);
@@ -180,7 +180,7 @@ export default function StatsPanel() {
     return METHODS.map(m => {
       const rows = scenarioResults
         .filter(r => r.method === m)
-        .map(r => ({ seed: r.seed, value: (r.kpi as Record<string, number>)[outlierKpi] ?? 0 }))
+        .map(r => ({ seed: r.seed, value: (r.kpi as unknown as Record<string, number>)[outlierKpi] ?? 0 }))
         .sort((a, b) => a.value - b.value);
       return { method: m, top3: rows.slice(-3).reverse(), bottom3: rows.slice(0, 3) };
     });
@@ -303,7 +303,7 @@ export default function StatsPanel() {
               <tbody>
                 {sorted.map((t, i) => {
                   const meta = KPI_META[t.kpi];
-                  const deltaAbs = t.cliffs_delta.abs ? Math.abs(t.cliffs_delta) : Math.abs(t.cliffs_delta);
+                  const deltaAbs = Math.abs(t.cliffs_delta);
                   const deltaColor =
                     deltaAbs >= 0.474 ? "#f97316" :
                     deltaAbs >= 0.33  ? "#f59e0b" :
