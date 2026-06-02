@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vessel &amp; Port Editor</title>
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+/>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+  #app { display: flex; height: 100vh; }
+
+  #sidebar {
+    width: 340px; flex: 0 0 340px; background: #1e1e24; color: #e6e6ec;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #map { flex: 1; }
+
+  .pad { padding: 12px; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  h2 { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #9a9aa8; }
+
+  label { display: block; font-size: 12px; margin: 6px 0 2px; color: #b9b9c5; }
+  input, select, button, textarea {
+    width: 100%; padding: 7px 8px; border-radius: 6px; border: 1px solid #3a3a44;
+    background: #2a2a32; color: #e6e6ec; font-size: 13px; font-family: inherit;
+  }
+  button {
+    cursor: pointer; background: #3b5bdb; border-color: #3b5bdb; color: #fff;
+    font-weight: 600; margin-top: 8px;
+  }
+  button.secondary { background: #2a2a32; border-color: #3a3a44; color: #e6e6ec; font-weight: 500; }
+  button.danger { background: #2a2a32; border-color: #5a2a2a; color: #ff9a9a; }
+  button:hover { filter: brightness(1.08); }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  /* mode tabs */
+  #tabs { display: flex; gap: 6px; padding: 10px 12px 0; }
+  #tabs button {
+    margin: 0; background: #2a2a32; border-color: #3a3a44; color: #b9b9c5; font-weight: 600;
+  }
+  #tabs button.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+
+  #vesselPanel, #portPanel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .list { flex: 1; overflow-y: auto; min-height: 0; padding: 0 12px 12px; }
+  .item {
+    border: 1px solid #3a3a44; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+    cursor: pointer; background: #25252d;
+  }
+  .item.active { border-color: #3b5bdb; box-shadow: 0 0 0 1px #3b5bdb inset; }
+  .item .top { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
+  .item .nm { font-weight: 600; font-size: 13px; }
+  .item .meta { font-size: 11px; color: #9a9aa8; margin-top: 2px; }
+  .item .acts { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .item .acts button { margin-top: 0; padding: 4px 6px; font-size: 11px; flex: 1; }
+
+  .hint { font-size: 11px; color: #9a9aa8; margin-top: 6px; line-height: 1.4; }
+  #status { padding: 8px 12px; font-size: 12px; background: #15151a; color: #c9c9d4; border-top: 1px solid #2a2a32; }
+
+  .marker-num {
+    background: #fff; border: 2px solid #111; border-radius: 50%;
+    width: 22px; height: 22px; line-height: 18px; text-align: center;
+    font-size: 11px; font-weight: 700;
+  }
+  .marker-first {
+    background: #fff; border: 3px solid #2f9e44; border-radius: 50%;
+    width: 24px; height: 24px; line-height: 18px; text-align: center;
+    font-size: 11px; font-weight: 700; color: #2f9e44;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1 class="pad" style="padding-bottom:0;">Vessel &amp; Port Editor</h1>
+    <div id="tabs">
+      <button id="tabVessels" class="active">Vessels</button>
+      <button id="tabPorts">Ports</button>
+    </div>
+
+    <!-- VESSEL PANEL -->
+    <div id="vesselPanel">
+      <div class="pad">
+        <h2>New vessel</h2>
+        <label>MMSI</label>
+        <input id="mmsi" type="number" placeholder="219026490" />
+        <label>Name</label>
+        <input id="vName" type="text" placeholder="LEVANTE" />
+        <label>Vessel type</label>
+        <input id="vesselType" list="typeOptions" type="text" placeholder="cargo" value="cargo" />
+        <datalist id="typeOptions">
+          <option value="cargo"></option><option value="tanker"></option>
+          <option value="passenger"></option><option value="fishing"></option>
+          <option value="tug"></option><option value="pleasure"></option>
+          <option value="sailing"></option><option value="military"></option>
+          <option value="other"></option>
+        </datalist>
+        <button id="addVessel">Add vessel &amp; start placing</button>
+        <div class="hint">Click the map to drop waypoints onto the active vessel. Drag a point to move it; click a point to delete it.</div>
+      </div>
+      <h2 class="pad" style="padding-bottom:0;">Vessels</h2>
+      <div id="vesselList" class="list"></div>
+      <div class="pad" style="border-top:1px solid #2a2a32;">
+        <div class="row">
+          <button class="secondary" id="vExport">Download vessels JSON</button>
+          <button class="secondary" id="vCopy">Copy</button>
+        </div>
+        <div class="row">
+          <button class="secondary" id="vImport">Import</button>
+          <button class="danger" id="vClear">Clear vessels</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PORT PANEL -->
+    <div id="portPanel" class="hidden">
+      <div class="pad">
+        <h2>New port</h2>
+        <label>Name</label>
+        <input id="pName" type="text" placeholder="Gdańsk" />
+        <button id="addPort">Add port &amp; start drawing</button>
+        <div class="hint">Click the map to drop the outline points of the area. Click the <b style="color:#2f9e44">green starting point</b> again to close the loop (needs at least 3 points). Drag points to adjust; click a point to delete it.</div>
+      </div>
+      <h2 class="pad" style="padding-bottom:0;">Ports</h2>
+      <div id="portList" class="list"></div>
+      <div class="pad" style="border-top:1px solid #2a2a32;">
+        <div class="row">
+          <button class="secondary" id="pExport">Download ports JSON</button>
+          <button class="secondary" id="pCopy">Copy</button>
+        </div>
+        <div class="row">
+          <button class="secondary" id="pImport">Import</button>
+          <button class="danger" id="pClear">Clear ports</button>
+        </div>
+      </div>
+    </div>
+
+    <input id="fileInput" type="file" accept=".json,application/json" style="display:none" />
+    <div id="status">No active vessel.</div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  // ---- State ----
+  let mode = 'vessels';            // 'vessels' | 'ports'
+  let vessels = [];                // {mmsi,name,vessel_type,waypoints:[{lat,lon}],_layers}
+  let ports = [];                  // {name,keypoints:[{lat,lon}],closed,_layers}
+  let activeVessel = null;
+  let activePort = null;
+  let importTarget = 'vessels';
+
+  const V_COLORS = ['#3b5bdb','#e8590c','#9c36b5','#1098ad','#d6336c','#f08c00','#495057','#0c8599'];
+  const P_COLORS = ['#2f9e44','#1971c2','#e8590c','#9c36b5','#c2255c','#5c940d','#0b7285','#862e9c'];
+
+  // ---- Map ----
+  const map = L.map('map', { worldCopyJump: true }).setView([56, 12], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  map.on('click', function (e) {
+    if (mode === 'vessels') {
+      if (activeVessel === null) { flash('Add or select a vessel first.'); return; }
+      vessels[activeVessel].waypoints.push({ lat: e.latlng.lat, lon: e.latlng.lng });
+      redrawVessel(activeVessel); refresh();
+    } else {
+      if (activePort === null) { flash('Add or select a port first.'); return; }
+      const p = ports[activePort];
+      if (p.closed) { flash('This port is closed. Reopen it to add points.'); return; }
+      p.keypoints.push({ lat: e.latlng.lat, lon: e.latlng.lng });
+      redrawPort(activePort); refresh();
+    }
+  });
+
+  // ---- Helpers ----
+  const $ = id => document.getElementById(id);
+  function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function clearLayers(o){ if(!o._layers)return; (o._layers.markers||[]).forEach(m=>map.removeLayer(m)); if(o._layers.shape)map.removeLayer(o._layers.shape); o._layers={markers:[],shape:null}; }
+
+  // ---- Vessel drawing ----
+  function redrawVessel(i){
+    const v = vessels[i]; clearLayers(v); v._layers={markers:[],shape:null};
+    const color = V_COLORS[i % V_COLORS.length];
+    const latlngs = v.waypoints.map(w=>[w.lat,w.lon]);
+    if (latlngs.length>=2)
+      v._layers.shape = L.polyline(latlngs,{color,weight:3,opacity:(mode==='vessels'&&i===activeVessel)?0.95:0.5}).addTo(map);
+    v.waypoints.forEach((w,idx)=>{
+      const icon = L.divIcon({className:'',html:'<div class="marker-num" style="border-color:'+color+';color:'+color+'">'+(idx+1)+'</div>',iconSize:[22,22],iconAnchor:[11,11]});
+      const m = L.marker([w.lat,w.lon],{icon,draggable:true}).addTo(map);
+      m.on('drag',ev=>{const ll=ev.target.getLatLng();w.lat=ll.lat;w.lon=ll.lng;if(v._layers.shape)v._layers.shape.setLatLngs(v.waypoints.map(p=>[p.lat,p.lon]));});
+      m.on('dragend',refresh);
+      m.on('click',ev=>{L.DomEvent.stopPropagation(ev);v.waypoints.splice(idx,1);redrawVessel(i);refresh();});
+      m.bindTooltip('#'+(idx+1)+' — click to delete',{direction:'top'});
+      v._layers.markers.push(m);
+    });
+  }
+
+  // ---- Port drawing ----
+  function redrawPort(i){
+    const p = ports[i]; clearLayers(p); p._layers={markers:[],shape:null};
+    const color = P_COLORS[i % P_COLORS.length];
+    const latlngs = p.keypoints.map(k=>[k.lat,k.lon]);
+    const isActive = (mode==='ports' && i===activePort);
+    if (p.closed && latlngs.length>=3){
+      p._layers.shape = L.polygon(latlngs,{color,weight:2,fillColor:color,fillOpacity:isActive?0.35:0.2}).addTo(map);
+    } else if (latlngs.length>=2){
+      p._layers.shape = L.polyline(latlngs,{color,weight:2,dashArray:'6,5'}).addTo(map);
+    }
+    p.keypoints.forEach((k,idx)=>{
+      const isFirst = idx===0;
+      const cls = (!p.closed && isFirst) ? 'marker-first' : 'marker-num';
+      const style = (!p.closed && isFirst) ? '' : 'border-color:'+color+';color:'+color;
+      const icon = L.divIcon({className:'',html:'<div class="'+cls+'" style="'+style+'">'+(idx+1)+'</div>',iconSize:[24,24],iconAnchor:[12,12]});
+      const m = L.marker([k.lat,k.lon],{icon,draggable:true}).addTo(map);
+      m.on('drag',ev=>{
+        const ll=ev.target.getLatLng();k.lat=ll.lat;k.lon=ll.lng;
+        if(p._layers.shape) p._layers.shape.setLatLngs(p.keypoints.map(q=>[q.lat,q.lon]));
+      });
+      m.on('dragend',refresh);
+      m.on('click',ev=>{
+        L.DomEvent.stopPropagation(ev);
+        if(!p.closed && isFirst){
+          if(p.keypoints.length>=3){ p.closed=true; redrawPort(i); refresh(); flash('Port "'+p.name+'" closed.'); }
+          else { flash('Need at least 3 points before closing.'); }
+          return;
+        }
+        const minPts = p.closed ? 3 : 1;
+        if(p.keypoints.length>minPts){ p.keypoints.splice(idx,1); redrawPort(i); refresh(); }
+        else { flash('Cannot delete — too few points.'); }
+      });
+      if(!p.closed && isFirst) m.bindTooltip('Start point — click to close loop',{direction:'top'});
+      else m.bindTooltip('#'+(idx+1)+' — click to delete',{direction:'top'});
+      p._layers.markers.push(m);
+    });
+  }
+
+  function redrawAll(){ vessels.forEach((_,i)=>redrawVessel(i)); ports.forEach((_,i)=>redrawPort(i)); }
+
+  // ---- UI ----
+  function refresh(){ mode==='vessels' ? renderVessels() : renderPorts(); updateStatus(); }
+
+  function renderVessels(){
+    const list = $('vesselList'); list.innerHTML='';
+    vessels.forEach((v,i)=>{
+      const div=document.createElement('div');
+      div.className='item'+(i===activeVessel?' active':'');
+      div.innerHTML='<div class="top"><span class="swatch" style="background:'+V_COLORS[i%V_COLORS.length]+'"></span><span class="nm">'+escapeHtml(v.name||'(no name)')+'</span></div>'+
+        '<div class="meta">MMSI '+v.mmsi+' · '+escapeHtml(v.vessel_type)+' · '+v.waypoints.length+' wp</div>'+
+        '<div class="acts"><button class="secondary as">'+(i===activeVessel?'Active ✓':'Select')+'</button><button class="secondary au">Undo pt</button><button class="danger ad">Delete</button></div>';
+      div.querySelector('.as').onclick=()=>{activeVessel=i;redrawAll();refresh();};
+      div.querySelector('.au').onclick=e=>{e.stopPropagation();v.waypoints.pop();redrawVessel(i);refresh();};
+      div.querySelector('.ad').onclick=e=>{e.stopPropagation();clearLayers(v);vessels.splice(i,1);if(activeVessel===i)activeVessel=null;else if(activeVessel>i)activeVessel--;redrawAll();refresh();};
+      list.appendChild(div);
+    });
+  }
+
+  function renderPorts(){
+    const list = $('portList'); list.innerHTML='';
+    ports.forEach((p,i)=>{
+      const div=document.createElement('div');
+      div.className='item'+(i===activePort?' active':'');
+      div.innerHTML='<div class="top"><span class="swatch" style="background:'+P_COLORS[i%P_COLORS.length]+'"></span><span class="nm">'+escapeHtml(p.name||'(no name)')+'</span></div>'+
+        '<div class="meta">'+p.keypoints.length+' points · '+(p.closed?'closed':'drawing…')+'</div>'+
+        '<div class="acts"><button class="secondary as">'+(i===activePort?'Active ✓':'Select')+'</button>'+
+        (p.closed?'<button class="secondary ar">Reopen</button>':'<button class="secondary ac">Close</button>')+
+        '<button class="danger ad">Delete</button></div>';
+      div.querySelector('.as').onclick=()=>{activePort=i;redrawAll();refresh();};
+      const ar=div.querySelector('.ar'); if(ar) ar.onclick=e=>{e.stopPropagation();p.closed=false;activePort=i;redrawPort(i);refresh();};
+      const ac=div.querySelector('.ac'); if(ac) ac.onclick=e=>{e.stopPropagation();if(p.keypoints.length>=3){p.closed=true;redrawPort(i);refresh();}else flash('Need at least 3 points.');};
+      div.querySelector('.ad').onclick=e=>{e.stopPropagation();clearLayers(p);ports.splice(i,1);if(activePort===i)activePort=null;else if(activePort>i)activePort--;redrawAll();refresh();};
+      list.appendChild(div);
+    });
+  }
+
+  function updateStatus(){
+    const s=$('status');
+    if(mode==='vessels'){
+      if(activeVessel===null){s.textContent='No active vessel — add or select one, then click the map.';return;}
+      const v=vessels[activeVessel]; s.innerHTML='Active vessel: <b>'+escapeHtml(v.name)+'</b> ('+v.waypoints.length+' pts).';
+    } else {
+      if(activePort===null){s.textContent='No active port — add or select one, then click the map.';return;}
+      const p=ports[activePort];
+      s.innerHTML='Active port: <b>'+escapeHtml(p.name)+'</b> ('+p.keypoints.length+' pts'+(p.closed?', closed':', click green point to close')+').';
+    }
+  }
+
+  let statusTimer=null;
+  function flash(msg){ const s=$('status'); s.textContent=msg; clearTimeout(statusTimer); statusTimer=setTimeout(updateStatus,2500); }
+
+  // ---- Tabs ----
+  function setMode(m){
+    mode=m;
+    $('tabVessels').classList.toggle('active',m==='vessels');
+    $('tabPorts').classList.toggle('active',m==='ports');
+    $('vesselPanel').classList.toggle('hidden',m!=='vessels');
+    $('portPanel').classList.toggle('hidden',m!=='ports');
+    redrawAll(); refresh();
+  }
+  $('tabVessels').onclick=()=>setMode('vessels');
+  $('tabPorts').onclick=()=>setMode('ports');
+
+  // ---- Add vessel / port ----
+  $('addVessel').onclick=function(){
+    const mmsiRaw=$('mmsi').value.trim(), name=$('vName').value.trim(), vt=$('vesselType').value.trim()||'other';
+    if(!mmsiRaw){flash('Enter an MMSI.');return;} if(!name){flash('Enter a name.');return;}
+    const mmsi=Number(mmsiRaw); if(!Number.isFinite(mmsi)){flash('MMSI must be a number.');return;}
+    vessels.push({mmsi,name,vessel_type:vt,waypoints:[],_layers:{markers:[],shape:null}});
+    activeVessel=vessels.length-1; $('mmsi').value='';$('vName').value='';
+    redrawAll();refresh();flash('Vessel added — click the map to place waypoints.');
+  };
+  $('addPort').onclick=function(){
+    const name=$('pName').value.trim(); if(!name){flash('Enter a port name.');return;}
+    ports.push({name,keypoints:[],closed:false,_layers:{markers:[],shape:null}});
+    activePort=ports.length-1; $('pName').value='';
+    redrawAll();refresh();flash('Port added — click the map to outline the area.');
+  };
+
+  // ---- Serialize ----
+  function serializeVessels(){ return vessels.map(v=>({mmsi:v.mmsi,name:v.name,vessel_type:v.vessel_type,waypoints:v.waypoints.map(w=>({lat:w.lat,lon:w.lon}))})); }
+  function serializePorts(){ return ports.map(p=>({name:p.name,keypoints:p.keypoints.map(k=>({lat:k.lat,lon:k.lon}))})); }
+
+  function download(obj,fname){
+    const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url;a.download=fname;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  }
+  async function copy(obj){
+    const json=JSON.stringify(obj,null,2);
+    try{await navigator.clipboard.writeText(json);flash('Copied to clipboard.');}
+    catch(e){const ta=document.createElement('textarea');ta.value=json;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);flash('Copied (fallback).');}
+  }
+
+  $('vExport').onclick=()=>download(serializeVessels(),'ais_paths.json');
+  $('vCopy').onclick=()=>copy(serializeVessels());
+  $('pExport').onclick=()=>download(serializePorts(),'ports.json');
+  $('pCopy').onclick=()=>copy(serializePorts());
+
+  // ---- Import ----
+  $('vImport').onclick=()=>{importTarget='vessels';$('fileInput').click();};
+  $('pImport').onclick=()=>{importTarget='ports';$('fileInput').click();};
+  $('fileInput').onchange=function(e){
+    const file=e.target.files[0]; if(!file)return;
+    const r=new FileReader();
+    r.onload=function(){
+      try{
+        const data=JSON.parse(r.result);
+        if(!Array.isArray(data)) throw new Error('Top level must be an array.');
+        if(importTarget==='vessels'){
+          vessels.forEach(clearLayers);
+          vessels=data.map(d=>({mmsi:d.mmsi,name:d.name||'',vessel_type:d.vessel_type||'other',waypoints:(d.waypoints||[]).map(w=>({lat:w.lat,lon:w.lon})),_layers:{markers:[],shape:null}}));
+          activeVessel=vessels.length?0:null;
+        } else {
+          ports.forEach(clearLayers);
+          ports=data.map(d=>({name:d.name||'',keypoints:(d.keypoints||d.waypoints||[]).map(k=>({lat:k.lat,lon:k.lon})),closed:true,_layers:{markers:[],shape:null}}));
+          activePort=ports.length?0:null;
+        }
+        redrawAll();refresh();
+        const all=(importTarget==='vessels'?vessels.flatMap(v=>v.waypoints):ports.flatMap(p=>p.keypoints)).map(c=>[c.lat,c.lon]);
+        if(all.length)map.fitBounds(all,{padding:[40,40]});
+        flash('Imported '+(importTarget==='vessels'?vessels.length+' vessel(s).':ports.length+' port(s).'));
+      }catch(err){flash('Import failed: '+err.message);}
+    };
+    r.readAsText(file); e.target.value='';
+  };
+
+  // ---- Clear ----
+  $('vClear').onclick=()=>{if(!vessels.length||confirm('Remove all vessels?')){vessels.forEach(clearLayers);vessels=[];activeVessel=null;refresh();}};
+  $('pClear').onclick=()=>{if(!ports.length||confirm('Remove all ports?')){ports.forEach(clearLayers);ports=[];activePort=null;refresh();}};
+
+  refresh();
+})();
+</script>
+</body>
+</html>

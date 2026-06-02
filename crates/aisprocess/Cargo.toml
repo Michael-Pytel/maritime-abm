@@ -1,0 +1,16 @@
+[package]
+name = "aisprocess"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "aisprocess"
+path = "src/main.rs"
+
+[dependencies]
+csv.workspace     = true
+serde_json.workspace = true
+anyhow.workspace  = true
+
+[lints]
+workspace = true

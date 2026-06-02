@@ -1,0 +1,36 @@
+outputs/
+.claude/
+
+
+# Rust build output
+/target
+
+# Node
+node_modules
+
+# Frontend build output
+frontend/dist
+frontend/dist-ssr
+
+# Frontend logs
+*.log
+npm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Report build artifacts
+report/build_latex/report.pdf

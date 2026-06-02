@@ -1,0 +1,36 @@
+[workspace]
+members = ["crates/simulation", "crates/api", "crates/aisprocess"]
+resolver = "2"
+
+[workspace.dependencies]
+# krabmaga 0.6 is the latest compatible; 0.5 was yanked
+krabmaga           = { version = "0.6",  features = [] }
+tokio              = { version = "1",    features = ["full"] }
+axum               = { version = "0.8",  features = ["ws"] }
+tower-http         = { version = "0.6",  features = ["cors"] }
+serde              = { version = "1",    features = ["derive"] }
+serde_json         = "1"
+rand               = { version = "0.8",  features = ["small_rng"] }
+geo-types          = "0.7"
+geo                = "0.28"
+geojson            = "0.24"
+rstar              = "0.12"
+rayon              = "1"
+ndarray            = { version = "0.15", features = ["rayon"] }
+csv                = "1"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid               = { version = "1",   features = ["v4"] }
+anyhow             = "1"
+thiserror          = "1"
+tower              = { version = "0.5", features = ["util"] }
+http-body-util     = "0.1"
+hyper              = { version = "1", features = ["full"] }
+
+[workspace.lints.rust]
+unused    = "warn"
+dead_code = "warn"
+
+[workspace.lints.clippy]
+all      = "warn"
+pedantic = "warn"

@@ -1,0 +1,12 @@
+#!/bin/sh
+
+echo "--- Rust format check ---"
+cargo fmt --all -- --check || { echo "Run 'cargo fmt --all' to fix formatting."; exit 1; }
+
+echo "--- Rust clippy ---"
+cargo clippy --all-targets --all-features -- -D warnings || exit 1
+
+echo "--- Frontend type check & lint ---"
+cd frontend
+npx tsc -b --dry 2>/dev/null || npx tsc --noEmit || exit 1
+npx eslint . || exit 1
