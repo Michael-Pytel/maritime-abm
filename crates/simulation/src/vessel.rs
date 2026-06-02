@@ -25,7 +25,7 @@ const FATIGUE_RECOVERY_RATE: f64 = 0.025;
 const FATIGUE_COMMS_THRESHOLD: f64 = 0.40;
 
 /// Maximum fractional comms rate reduction due to crew fatigue.
-/// At fatigue = 1.0 the rate is multiplied by (1 − FATIGUE_COMMS_PENALTY).
+/// At fatigue = 1.0 the rate is multiplied by (1 − `FATIGUE_COMMS_PENALTY`).
 const FATIGUE_COMMS_PENALTY: f64 = 0.65;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,7 +56,6 @@ pub struct VesselAgent {
     pub last_port_id: Option<u32>,
 
     // ── Collision-avoidance fields ─────────────────────────────────────────
-
     /// Temporary avoidance waypoints injected by `PostTickAgent`.  Consumed
     /// from the front before normal route waypoints are targeted.
     #[serde(skip)]
@@ -92,12 +91,13 @@ pub struct VesselAgent {
 }
 
 /// Returns a realistic cruising speed (knots) for the given vessel type.
+#[must_use]
 pub fn typical_speed_kn(vessel_type: &str, rand_frac: f64) -> f64 {
     match vessel_type.to_lowercase().as_str() {
         "passenger" | "ferry" | "ro-ro" | "ro-pax" => 15.0 + rand_frac * 8.0,
-        "tanker"                                    => 10.0 + rand_frac * 4.0,
+        "tanker" => 10.0 + rand_frac * 4.0,
         "cargo" | "container" | "bulk" | "general cargo" => 10.0 + rand_frac * 6.0,
-        _                                           => 10.0 + rand_frac * 10.0,
+        _ => 10.0 + rand_frac * 10.0,
     }
 }
 
@@ -157,9 +157,13 @@ impl VesselAgent {
                 self.begin_dock(tick, config, true);
                 return;
             }
-            let next = self.route_index as i32 + self.route_direction as i32;
-            if (0..self.route.len() as i32).contains(&next) {
-                self.route_index = next as usize;
+            let next_opt = if self.route_direction > 0 {
+                self.route_index.checked_add(1)
+            } else {
+                self.route_index.checked_sub(1)
+            };
+            if let Some(next) = next_opt.filter(|&n| n < self.route.len()) {
+                self.route_index = next;
             }
             return;
         }
@@ -196,9 +200,7 @@ impl VesselAgent {
                     if self.last_port_id == Some(port.id) {
                         continue; // still leaving departure port
                     }
-                    if !port.polygon.is_empty()
-                        && ais::point_in_polygon(nx, ny, &port.polygon)
-                    {
+                    if !port.polygon.is_empty() && ais::point_in_polygon(nx, ny, &port.polygon) {
                         self.last_port_id = Some(port.id);
                         self.begin_dock(tick, config, false);
                         return;
@@ -215,9 +217,13 @@ impl VesselAgent {
                     self.avoiding = false;
                 }
             } else {
-                let next = self.route_index as i32 + self.route_direction as i32;
-                if (0..self.route.len() as i32).contains(&next) {
-                    self.route_index = next as usize;
+                let next_opt = if self.route_direction > 0 {
+                    self.route_index.checked_add(1)
+                } else {
+                    self.route_index.checked_sub(1)
+                };
+                if let Some(next) = next_opt.filter(|&n| n < self.route.len()) {
+                    self.route_index = next;
                 } else {
                     self.begin_dock(tick, config, true);
                 }
@@ -249,14 +255,19 @@ impl VesselAgent {
             .saturating_sub(config.port_dwell_min_ticks)
             .max(1);
         let r = pseudo_rand(self.id.wrapping_add(0xD0C0), tick);
-        let dwell = config.port_dwell_min_ticks + (r * span as f64) as u32;
-        self.dock_until_tick = Some(tick + dwell as u64);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let dwell = config.port_dwell_min_ticks + (r * f64::from(span)) as u32;
+        self.dock_until_tick = Some(tick + u64::from(dwell));
 
         // Reverse travel direction for the return voyage.
         self.route_direction = -self.route_direction;
-        let next = self.route_index as i32 + self.route_direction as i32;
-        if (0..self.route.len() as i32).contains(&next) {
-            self.route_index = next as usize;
+        let next_opt = if self.route_direction > 0 {
+            self.route_index.checked_add(1)
+        } else {
+            self.route_index.checked_sub(1)
+        };
+        if let Some(next) = next_opt.filter(|&n| n < self.route.len()) {
+            self.route_index = next;
         }
     }
 
@@ -285,8 +296,8 @@ impl VesselAgent {
 
                 // Methods with crew-management systems slow fatigue build-up.
                 let method_factor = match method {
-                    Method::BaselineA      => 1.00, // unmanaged
-                    Method::BaselineB      => 0.82, // shore rest alerts
+                    Method::BaselineA => 1.00,      // unmanaged
+                    Method::BaselineB => 0.82,      // shore rest alerts
                     Method::ProposedSystem => 0.65, // smart watch scheduling
                 };
 
@@ -299,12 +310,12 @@ impl VesselAgent {
     ///
     /// Returns 1.0 until fatigue exceeds `FATIGUE_COMMS_THRESHOLD`, then
     /// linearly decays to `(1 − FATIGUE_COMMS_PENALTY)` at fatigue = 1.0.
+    #[must_use]
     pub fn fatigue_comms_factor(&self) -> f64 {
         if self.fatigue <= FATIGUE_COMMS_THRESHOLD {
             return 1.0;
         }
-        let excess = (self.fatigue - FATIGUE_COMMS_THRESHOLD)
-            / (1.0 - FATIGUE_COMMS_THRESHOLD);
+        let excess = (self.fatigue - FATIGUE_COMMS_THRESHOLD) / (1.0 - FATIGUE_COMMS_THRESHOLD);
         (1.0 - FATIGUE_COMMS_PENALTY * excess).max(1.0 - FATIGUE_COMMS_PENALTY)
     }
 }
@@ -316,9 +327,8 @@ impl krabmaga::engine::agent::Agent for VesselAgent {
             .downcast_mut::<crate::state::SimStateWrapper>()
             .unwrap();
         let tick = wrapper.inner.step;
-        let idx = match wrapper.inner.vessels.iter().position(|v| v.id == self.id) {
-            Some(i) => i,
-            None => return,
+        let Some(idx) = wrapper.inner.vessels.iter().position(|v| v.id == self.id) else {
+            return;
         };
         let config = wrapper.inner.config.clone();
         let land_mask = wrapper.inner.land_mask.clone();
@@ -336,14 +346,15 @@ impl krabmaga::engine::agent::Agent for VesselAgent {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn pseudo_rand(id: u64, tick: u64) -> f64 {
     let mut x = id
         .wrapping_mul(6_364_136_223_846_793_005)
         .wrapping_add(tick.wrapping_mul(1_442_695_040_888_963_407));
     x ^= x >> 33;
-    x = x.wrapping_mul(0xff51afd7ed558ccd);
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
     x ^= x >> 33;
-    x = x.wrapping_mul(0xc4ceb9fe1a85ec53);
+    x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
     x ^= x >> 31;
     (x as f64) / (u64::MAX as f64)
 }
@@ -470,8 +481,14 @@ mod tests {
 
         v.step(0, &cfg, &LandMask::empty(), &[]);
 
-        assert!(!v.avoiding, "avoiding flag should be cleared after WP consumed");
-        assert!(v.avoided_vessel_id == Some(999), "avoided_vessel_id should capture the other vessel");
+        assert!(
+            !v.avoiding,
+            "avoiding flag should be cleared after WP consumed"
+        );
+        assert!(
+            v.avoided_vessel_id == Some(999),
+            "avoided_vessel_id should capture the other vessel"
+        );
         assert!(v.avoiding_vessel_id.is_none());
     }
 }

@@ -53,6 +53,7 @@ pub enum MsgKind {
 /// `pos_*` and `vel_*` are in field-coordinate nautical miles and nm/tick
 /// respectively.  Returns `(current_distance, 0.0)` when vessels are already
 /// diverging and `(current_distance, f64::MAX)` when on parallel courses.
+#[must_use]
 pub fn compute_cpa(
     pos_a: (f64, f64),
     vel_a: (f64, f64),
@@ -85,6 +86,7 @@ pub fn compute_cpa(
 /// Returns the field-coordinate velocity vector `(vx, vy)` in nm/tick.
 ///
 /// Compass heading: 0 = north, 90 = east.  Field coords: x = east, y = north.
+#[must_use]
 pub fn vessel_velocity(heading_deg: f64, speed_kn: f64) -> (f64, f64) {
     let nm_per_tick = speed_kn * 0.25; // 1 tick = 15 min = 0.25 h
     let h = heading_deg.to_radians();
@@ -97,6 +99,7 @@ pub fn vessel_velocity(heading_deg: f64, speed_kn: f64) -> (f64, f64) {
 /// current position and compass heading.
 ///
 /// Starboard direction for compass heading θ: x = cos θ, y = −sin θ.
+#[must_use]
 pub fn avoidance_waypoint(
     pos: (f64, f64),
     heading_deg: f64,
@@ -123,11 +126,14 @@ mod tests {
     fn head_on_collision_detected() {
         // A heads north at 3.75 nm/tick, B heads south at 3.75 nm/tick,
         // separated by 10 nm.  CPA ≈ 0, TTA ≈ 10/7.5 ≈ 1.33 ticks.
-        let vel_a = vessel_velocity(0.0, 15.0);   // north
+        let vel_a = vessel_velocity(0.0, 15.0); // north
         let vel_b = vessel_velocity(180.0, 15.0); // south
         let (cpa, tta) = compute_cpa((0.0, 0.0), vel_a, (0.0, 10.0), vel_b);
         assert!(cpa < 0.01, "head-on CPA should be ≈0, got {cpa:.4}");
-        assert!((tta - 10.0 / 7.5).abs() < 0.01, "TTA should be ≈1.33 ticks, got {tta:.4}");
+        assert!(
+            (tta - 10.0 / 7.5).abs() < 0.01,
+            "TTA should be ≈1.33 ticks, got {tta:.4}"
+        );
     }
 
     #[test]
@@ -136,23 +142,28 @@ mod tests {
         // The detection code filters MAX as "no approaching threat", which is correct.
         let vel = vessel_velocity(0.0, 15.0);
         let (_, tta) = compute_cpa((0.0, 0.0), vel, (0.0, 5.0), vel);
-        assert_eq!(tta, f64::MAX, "identical velocities → dv=0 → TTA = MAX (undefined)");
+        #[allow(clippy::float_cmp)]
+        let eq = tta == f64::MAX;
+        assert!(eq, "identical velocities → dv=0 → TTA = MAX (undefined)");
     }
 
     #[test]
     fn already_past_cpa_returns_zero_tta() {
         // A moves east, B is west of A but moving faster east — B is pulling away.
-        let vel_a = vessel_velocity(90.0, 5.0);  // 1.25 nm/tick east
+        let vel_a = vessel_velocity(90.0, 5.0); // 1.25 nm/tick east
         let vel_b = vessel_velocity(90.0, 15.0); // 3.75 nm/tick east, already ahead
-        // B starts at (10, 0) moving faster east than A at (0, 0) — diverging.
+                                                 // B starts at (10, 0) moving faster east than A at (0, 0) — diverging.
         let (_, tta) = compute_cpa((0.0, 0.0), vel_a, (10.0, 0.0), vel_b);
-        assert_eq!(tta, 0.0, "faster vessel ahead → already past CPA → TTA = 0");
+        #[allow(clippy::float_cmp)]
+        let eq = tta == 0.0;
+        assert!(eq, "faster vessel ahead → already past CPA → TTA = 0");
     }
 
     #[test]
     fn avoidance_wp_is_to_starboard() {
         // Vessel heading north (0°): starboard is east (+x).
-        let (wx, wy) = avoidance_waypoint((0.0, 0.0), 0.0, AVOIDANCE_OFFSET_NM, AVOIDANCE_FORWARD_NM);
+        let (wx, wy) =
+            avoidance_waypoint((0.0, 0.0), 0.0, AVOIDANCE_OFFSET_NM, AVOIDANCE_FORWARD_NM);
         assert!(wx > 0.0, "avoidance wp should be east of northbound vessel");
         assert!(wy > 0.0, "avoidance wp should be ahead (north) of vessel");
     }
@@ -160,8 +171,15 @@ mod tests {
     #[test]
     fn avoidance_wp_east_heading_starboard_is_south() {
         // Vessel heading east (90°): starboard is south (−y).
-        let (wx, wy) = avoidance_waypoint((0.0, 0.0), 90.0, AVOIDANCE_OFFSET_NM, AVOIDANCE_FORWARD_NM);
-        assert!(wx > 0.0, "avoidance wp should be ahead (east) of eastbound vessel");
-        assert!(wy < 0.0, "avoidance wp should be south (starboard) of eastbound vessel");
+        let (wx, wy) =
+            avoidance_waypoint((0.0, 0.0), 90.0, AVOIDANCE_OFFSET_NM, AVOIDANCE_FORWARD_NM);
+        assert!(
+            wx > 0.0,
+            "avoidance wp should be ahead (east) of eastbound vessel"
+        );
+        assert!(
+            wy < 0.0,
+            "avoidance wp should be south (starboard) of eastbound vessel"
+        );
     }
 }

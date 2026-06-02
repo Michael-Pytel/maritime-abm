@@ -213,7 +213,7 @@ export default function GradientOverlay({
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       if (overlayRef.current) {
-        const oldUrl = (overlayRef.current as any)._url;
+        const oldUrl = (overlayRef.current as L.ImageOverlay & { _url?: string })._url;
         overlayRef.current.setUrl(url);
         overlayRef.current.setOpacity(opacity);
         if (oldUrl?.startsWith("blob:")) URL.revokeObjectURL(oldUrl);
@@ -229,7 +229,7 @@ export default function GradientOverlay({
 
   useEffect(() => {
     return () => {
-      const url = (overlayRef.current as any)?._url;
+      const url = (overlayRef.current as L.ImageOverlay & { _url?: string })?._url;
       overlayRef.current?.remove();
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
     };

@@ -77,7 +77,7 @@ const WindParticles = memo(function WindParticles({
   windGrid,
   windDirGrid,
   gridSize,
-  bboxLatMin, bboxLatMax, bboxLonMin, bboxLonMax,
+  bboxLatMin: _bboxLatMin, bboxLatMax: _bboxLatMax, bboxLonMin: _bboxLonMin, bboxLonMax: _bboxLonMax,
   particleCount = 2000,
   particleSeed  = 42,
 }: Props) {

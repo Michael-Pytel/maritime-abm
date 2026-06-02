@@ -33,15 +33,16 @@ pub struct HypothesisResult {
     pub u_stat: f64,
     pub z_score: f64,
     pub p_value: f64,
-    pub p_corrected: f64,    // Holm-Bonferroni adjusted p-value
-    pub cliffs_delta: f64,   // signed Cliff's Δ = (U_a - U_b) / (n_a × n_b)
-    pub effect_size: f64,    // |cliffs_delta| for backwards compat
-    pub significant: bool,   // p_corrected < 0.05
-    pub confirmed: bool,     // significant AND |cliffs_delta| >= 0.2
+    pub p_corrected: f64,  // Holm-Bonferroni adjusted p-value
+    pub cliffs_delta: f64, // signed Cliff's Δ = (U_a - U_b) / (n_a × n_b)
+    pub effect_size: f64,  // |cliffs_delta| for backwards compat
+    pub significant: bool, // p_corrected < 0.05
+    pub confirmed: bool,   // significant AND |cliffs_delta| >= 0.2
 }
 
 /// Mann-Whitney U test (normal approximation, two-tailed).
-/// Returns (U_min, Z, p_value, cliffs_delta).
+/// Returns (`U_min`, Z, `p_value`, `cliffs_delta`).
+#[allow(clippy::many_single_char_names, clippy::cast_precision_loss)]
 fn mann_whitney(a: &[f64], b: &[f64]) -> (f64, f64, f64, f64) {
     let n1 = a.len();
     let n2 = b.len();
@@ -66,9 +67,7 @@ fn mann_whitney(a: &[f64], b: &[f64]) -> (f64, f64, f64, f64) {
             j += 1;
         }
         let avg_rank = (i + j + 1) as f64 / 2.0; // 1-based average
-        for k in i..j {
-            ranks[k] = avg_rank;
-        }
+        ranks[i..j].fill(avg_rank);
         i = j;
     }
 
@@ -96,29 +95,34 @@ fn mann_whitney(a: &[f64], b: &[f64]) -> (f64, f64, f64, f64) {
 
 /// Approximation of Φ(x) — standard normal CDF (Abramowitz & Stegun 26.2.17).
 fn normal_cdf(x: f64) -> f64 {
-    let t = 1.0 / (1.0 + 0.2316419 * x.abs());
+    let t = 1.0 / (1.0 + 0.231_641_9 * x.abs());
     let poly = t
         * (0.319_381_530
             + t * (-0.356_563_782
                 + t * (1.781_477_937 + t * (-1.821_255_978 + t * 1.330_274_429))));
     let phi = 1.0 - (1.0 / (2.0 * std::f64::consts::PI).sqrt()) * (-x * x / 2.0).exp() * poly;
-    if x >= 0.0 { phi } else { 1.0 - phi }
+    if x >= 0.0 {
+        phi
+    } else {
+        1.0 - phi
+    }
 }
 
 fn extract_kpi(r: &BatchResult, kpi: &str) -> f64 {
     match kpi {
-        "fatal_per_1k_hrs"     => r.kpi.fatal_per_1k_hrs,
+        "fatal_per_1k_hrs" => r.kpi.fatal_per_1k_hrs,
         "collision_per_1k_hrs" => r.kpi.collision_per_1k_hrs,
-        "survival_ratio"       => r.kpi.survival_ratio,
-        "avg_tta_hours"        => r.kpi.avg_tta_hours,
+        "survival_ratio" => r.kpi.survival_ratio,
+        "avg_tta_hours" => r.kpi.avg_tta_hours,
         "evac_activation_rate" => r.kpi.evac_activation_rate,
-        "mean_p_prep"          => r.kpi.mean_p_prep,
-        _                      => 0.0,
+        "mean_p_prep" => r.kpi.mean_p_prep,
+        _ => 0.0,
     }
 }
 
 /// Pairwise Mann-Whitney U tests for each KPI × scenario × method pair,
 /// with Holm-Bonferroni correction applied across all tests.
+#[allow(clippy::similar_names, clippy::many_single_char_names)]
 pub fn compute_hypothesis_tests(results: &[BatchResult]) -> Vec<HypothesisResult> {
     let kpis = [
         "fatal_per_1k_hrs",
@@ -135,48 +139,61 @@ pub fn compute_hypothesis_tests(results: &[BatchResult]) -> Vec<HypothesisResult
         Scenario::DeepWaterRescue,
     ];
     let method_pairs = [
-        (Method::BaselineA,     Method::ProposedSystem),
-        (Method::BaselineB,     Method::ProposedSystem),
-        (Method::BaselineA,     Method::BaselineB),
+        (Method::BaselineA, Method::ProposedSystem),
+        (Method::BaselineB, Method::ProposedSystem),
+        (Method::BaselineA, Method::BaselineB),
     ];
 
     let mut out: Vec<HypothesisResult> = Vec::new();
     for scenario in &scenarios {
         let sname = format!("{scenario:?}");
         for &(ma, mb) in &method_pairs {
-            let ma_name = format!("{ma:?}");
-            let mb_name = format!("{mb:?}");
+            #[allow(clippy::similar_names)]
+            let method_a_name = format!("{ma:?}");
+            #[allow(clippy::similar_names)]
+            let method_b_name = format!("{mb:?}");
             for kpi in &kpis {
                 let a: Vec<f64> = results
                     .iter()
-                    .filter(|r| r.scenario == sname && r.method == ma_name)
+                    .filter(|r| r.scenario == sname && r.method == method_a_name)
                     .map(|r| extract_kpi(r, kpi))
                     .collect();
                 let b: Vec<f64> = results
                     .iter()
-                    .filter(|r| r.scenario == sname && r.method == mb_name)
+                    .filter(|r| r.scenario == sname && r.method == method_b_name)
                     .map(|r| extract_kpi(r, kpi))
                     .collect();
 
-                let mean_a = if a.is_empty() { 0.0 } else { a.iter().sum::<f64>() / a.len() as f64 };
-                let mean_b = if b.is_empty() { 0.0 } else { b.iter().sum::<f64>() / b.len() as f64 };
+                #[allow(clippy::cast_precision_loss)]
+                let mean_a = if a.is_empty() {
+                    0.0
+                } else {
+                    a.iter().sum::<f64>() / a.len() as f64
+                };
+                #[allow(clippy::cast_precision_loss)]
+                let mean_b = if b.is_empty() {
+                    0.0
+                } else {
+                    b.iter().sum::<f64>() / b.len() as f64
+                };
 
+                #[allow(clippy::many_single_char_names)]
                 let (u, z, p, cliffs_delta) = mann_whitney(&a, &b);
                 out.push(HypothesisResult {
                     kpi: kpi.to_string(),
                     scenario: sname.clone(),
-                    method_a: ma_name.clone(),
-                    method_b: mb_name.clone(),
+                    method_a: method_a_name.clone(),
+                    method_b: method_b_name.clone(),
                     mean_a,
                     mean_b,
                     u_stat: u,
                     z_score: z,
                     p_value: p,
-                    p_corrected: p,       // placeholder, filled below
+                    p_corrected: p, // placeholder, filled below
                     cliffs_delta,
                     effect_size: cliffs_delta.abs(),
-                    significant: false,   // filled below
-                    confirmed: false,     // filled below
+                    significant: false, // filled below
+                    confirmed: false,   // filled below
                 });
             }
         }
@@ -185,15 +202,21 @@ pub fn compute_hypothesis_tests(results: &[BatchResult]) -> Vec<HypothesisResult
     // Holm-Bonferroni step-down correction
     let m = out.len();
     let mut order: Vec<usize> = (0..m).collect();
-    order.sort_by(|&i, &j| out[i].p_value.partial_cmp(&out[j].p_value).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|&i, &j| {
+        out[i]
+            .p_value
+            .partial_cmp(&out[j].p_value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut prev_corrected = 0.0f64;
     for (k, &idx) in order.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
         let factor = (m - k) as f64;
         let corrected = (out[idx].p_value * factor).min(1.0).max(prev_corrected);
         out[idx].p_corrected = corrected;
         out[idx].significant = corrected < 0.05;
-        out[idx].confirmed   = corrected < 0.05 && out[idx].cliffs_delta.abs() >= 0.2;
+        out[idx].confirmed = corrected < 0.05 && out[idx].cliffs_delta.abs() >= 0.2;
         prev_corrected = corrected;
     }
 

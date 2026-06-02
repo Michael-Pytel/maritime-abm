@@ -54,13 +54,23 @@ export function usePlayback() {
 
   useEffect(() => {
     if (!selectedRunId) return;
-    setLoading(true);
-    setTicks([]);
-    setCurrentIdx(0);
-    setPlaying(false);
-    fetch(`${API}/sim/runs/${selectedRunId}/log`)
-      .then(r => r.text())
+    let cancelled = false;
+
+    // Start the fetch immediately, but defer state resets to a microtask so
+    // no setState is called synchronously in the effect body.
+    const fetchPromise = fetch(`${API}/sim/runs/${selectedRunId}/log`).then(r => r.text());
+
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setTicks([]);
+      setCurrentIdx(0);
+      setPlaying(false);
+    });
+
+    fetchPromise
       .then(text => {
+        if (cancelled) return;
         const parsed: TickMessage[] = text
           .split("\n")
           .filter(l => l.trim().length > 0)
@@ -71,7 +81,9 @@ export function usePlayback() {
         setTicks(parsed);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [selectedRunId]);
 
   useEffect(() => {

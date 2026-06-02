@@ -55,6 +55,7 @@ impl RTreeObject for RTreeEntry {
 
 impl LandMask {
     /// An empty mask. Useful for tests and as a safe placeholder.
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             inner: Arc::new(LandMaskInner {
@@ -66,6 +67,7 @@ impl LandMask {
 
     /// Build a mask directly from polygons already in field-nm coordinates.
     /// Primarily used by tests and by `from_geojson` after projection.
+    #[must_use]
     pub fn from_polygons(polygons: Vec<Polygon<f64>>) -> Self {
         let entries: Vec<RTreeEntry> = polygons
             .iter()
@@ -86,13 +88,16 @@ impl LandMask {
         }
     }
 
-    /// Loads land polygons from a GeoJSON file. Coordinates in the file
-    /// must be WGS84 lon/lat (the GeoJSON spec order); they are projected
+    /// Loads land polygons from a `GeoJSON` file. Coordinates in the file
+    /// must be WGS84 lon/lat (the `GeoJSON` spec order); they are projected
     /// to field-nm at load time via `crate::ais::lat_lon_to_field`.
     ///
-    /// Supports Polygon, MultiPolygon, and GeometryCollection geometries,
-    /// at any depth of nesting inside a FeatureCollection. Holes (interior
+    /// Supports Polygon, `MultiPolygon`, and `GeometryCollection` geometries,
+    /// at any depth of nesting inside a `FeatureCollection`. Holes (interior
     /// rings) are preserved.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or the `GeoJSON` is malformed.
     pub fn from_geojson(path: &str) -> Result<Self> {
         let contents = fs::read_to_string(path)
             .with_context(|| format!("failed to read coastline file: {path}"))?;
@@ -122,12 +127,14 @@ impl LandMask {
         Ok(Self::from_polygons(polygons))
     }
 
-    /// Number of polygons in the mask (counting MultiPolygon parts separately).
+    /// Number of polygons in the mask (counting `MultiPolygon` parts separately).
+    #[must_use]
     pub fn polygon_count(&self) -> usize {
         self.inner.polygons.len()
     }
 
     /// Returns true if `(x, y)` (field-nm) lies inside any land polygon.
+    #[must_use]
     pub fn contains_point(&self, x: f64, y: f64) -> bool {
         let point = geo::Point::new(x, y);
         let envelope = AABB::from_point([x, y]);
@@ -143,17 +150,16 @@ impl LandMask {
     /// crosses or enters any land polygon. Used by sub-step grounding
     /// to catch the case where a full vessel step would skip over a thin
     /// land barrier that point-only tests miss.
+    #[must_use]
     pub fn segment_crosses_land(&self, a: (f64, f64), b: (f64, f64)) -> bool {
-        let line = GeoLine::new(
-            Coord { x: a.0, y: a.1 },
-            Coord { x: b.0, y: b.1 },
-        );
+        let line = GeoLine::new(Coord { x: a.0, y: a.1 }, Coord { x: b.0, y: b.1 });
         let (min_x, max_x) = if a.0 <= b.0 { (a.0, b.0) } else { (b.0, a.0) };
         let (min_y, max_y) = if a.1 <= b.1 { (a.1, b.1) } else { (b.1, a.1) };
         let envelope = AABB::from_corners([min_x, min_y], [max_x, max_y]);
         for entry in self.inner.rtree.locate_in_envelope_intersecting(&envelope) {
             let poly = &self.inner.polygons[entry.idx];
-            if poly.intersects(&line) || poly.contains(&geo::Point::new(a.0, a.1))
+            if poly.intersects(&line)
+                || poly.contains(&geo::Point::new(a.0, a.1))
                 || poly.contains(&geo::Point::new(b.0, b.1))
             {
                 return true;
@@ -194,7 +200,7 @@ fn push_polygons_from_geometry(geom: &Geometry, out: &mut Vec<Polygon<f64>>) {
     }
 }
 
-/// Converts a GeoJSON polygon (outer ring + optional holes, each ring a
+/// Converts a `GeoJSON` polygon (outer ring + optional holes, each ring a
 /// list of [lon, lat] positions) into a `geo::Polygon<f64>` in field-nm.
 fn polygon_from_rings(rings: &[Vec<Vec<f64>>]) -> Option<Polygon<f64>> {
     let mut exterior_coords = Vec::new();

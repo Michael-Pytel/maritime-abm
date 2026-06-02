@@ -45,7 +45,7 @@ const SEA_STATE_LABELS = ["Calm", "Rippled", "Wavelets", "Slight", "Moderate", "
 
 const ProbePopup = memo(function ProbePopup({
   lat, lon, channels, meta, gridSize,
-  worldWidthNm, worldHeightNm,
+  worldWidthNm: _worldWidthNm, worldHeightNm: _worldHeightNm,
   bboxLatMin, bboxLatMax, bboxLonMin, bboxLonMax,
   onClose,
 }: Props) {

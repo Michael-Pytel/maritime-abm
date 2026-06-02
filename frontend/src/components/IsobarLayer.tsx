@@ -101,7 +101,6 @@ const IsobarLayer = memo(function IsobarLayer({
   const map     = useRef<L.Map | null>(null);
   const mapHook = useMap();
   const svgRef  = useRef<SVGSVGElement | null>(null);
-  const layerRef = useRef<L.SVGOverlay | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Keep a stable reference to the map.

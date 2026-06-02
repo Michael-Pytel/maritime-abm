@@ -1,7 +1,7 @@
 //! AIS track extractor.
-//! Reads all data/aisdk-*.csv files, reconstructs per-vessel tracks,
+//! Reads all `data/aisdk-*.csv` files, reconstructs per-vessel tracks,
 //! selects vessels with the most complete multi-day voyages, and writes
-//! data/ais_paths.json in the format expected by the simulation.
+//! `data/ais_paths.json` in the format expected by the simulation.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -16,13 +16,15 @@ const LAT_MAX: f64 = 66.0;
 const LON_MIN: f64 = 9.5;
 const LON_MAX: f64 = 30.5;
 
-const MIN_SOG: f64 = 0.5;          // knots — ignore stationary pings
-const BUCKET_MINUTES: u32 = 30;    // keep one ping per 30-min window per vessel
-const MIN_POINTS: usize = 20;      // after subsampling, track must have ≥ 20 points
-// Type quotas for the output routes
+const MIN_SOG: f64 = 0.5; // knots — ignore stationary pings
+const BUCKET_MINUTES: u32 = 30; // keep one ping per 30-min window per vessel
+const MIN_POINTS: usize = 20; // after subsampling, track must have ≥ 20 points
+                              // Type quotas for the output routes
 const QUOTA_CARGO: usize = 35;
 const QUOTA_PASSENGER: usize = 25;
 const QUOTA_TANKER: usize = 20;
+
+const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 #[derive(Debug, Clone)]
 struct Ping {
@@ -36,26 +38,26 @@ struct Ping {
 struct VesselInfo {
     name: String,
     ship_type: String,
-    /// time-bucketed pings, keyed by (time_min / BUCKET_MINUTES)
+    /// time-bucketed pings, keyed by (`time_min` / `BUCKET_MINUTES`)
     buckets: HashMap<u32, Ping>,
     /// set of calendar days (YYYYMMDD) seen
     days: std::collections::HashSet<u32>,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let data_dir = PathBuf::from("data");
     let out_path = data_dir.join("ais_paths.json");
 
     // Collect all CSV files
     let mut csv_files: Vec<PathBuf> = fs::read_dir(&data_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
             p.extension().and_then(|e| e.to_str()) == Some("csv")
                 && p.file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with("aisdk-"))
-                    .unwrap_or(false)
+                    .is_some_and(|n| n.starts_with("aisdk-"))
         })
         .collect();
     csv_files.sort();
@@ -70,9 +72,9 @@ fn main() -> Result<()> {
     let mut kept_rows: u64 = 0;
 
     for csv_path in &csv_files {
-        eprintln!("Processing {:?} …", csv_path.file_name().unwrap());
-        let f = fs::File::open(csv_path)
-            .with_context(|| format!("opening {csv_path:?}"))?;
+        eprintln!("Processing {} …", csv_path.display());
+        let f =
+            fs::File::open(csv_path).with_context(|| format!("opening {}", csv_path.display()))?;
         let reader = BufReader::with_capacity(4 * 1024 * 1024, f);
         let mut lines = reader.lines();
 
@@ -80,16 +82,11 @@ fn main() -> Result<()> {
         lines.next();
 
         for line in lines {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => continue,
-            };
+            let Ok(line) = line else { continue };
             total_rows += 1;
 
-            let row = parse_row(&line);
-            let row = match row {
-                Some(r) => r,
-                None => continue,
+            let Some(row) = parse_row(&line) else {
+                continue;
             };
 
             // Filter mobile type
@@ -103,20 +100,15 @@ fn main() -> Result<()> {
                 continue;
             }
 
-            // Filter geographic bounds
-            let lat = row.lat as f64;
-            let lon = row.lon as f64;
-            if lat < LAT_MIN || lat > LAT_MAX || lon < LON_MIN || lon > LON_MAX {
-                continue;
-            }
-
-            // Filter bad GPS
-            if row.lat == 91.0 || (row.lat == 0.0 && row.lon == 0.0) {
+            // Filter geographic bounds (also excludes sentinel values lat=91 and null island)
+            let lat = f64::from(row.lat);
+            let lon = f64::from(row.lon);
+            if !(LAT_MIN..=LAT_MAX).contains(&lat) || !(LON_MIN..=LON_MAX).contains(&lon) {
                 continue;
             }
 
             // Filter SOG
-            if row.sog < MIN_SOG as f32 {
+            if f64::from(row.sog) < MIN_SOG {
                 continue;
             }
 
@@ -126,10 +118,10 @@ fn main() -> Result<()> {
 
             let entry = vessels.entry(row.mmsi).or_default();
             if entry.name.is_empty() && !row.name.is_empty() && row.name != "Unknown" {
-                entry.name = row.name.clone();
+                entry.name.clone_from(&row.name);
             }
             if entry.ship_type.is_empty() {
-                entry.ship_type = row.ship_type.clone();
+                entry.ship_type.clone_from(&row.ship_type);
             }
             entry.days.insert(day);
             entry.buckets.entry(bucket).or_insert(Ping {
@@ -174,7 +166,11 @@ fn main() -> Result<()> {
         eprintln!("  {t}: {}", v.len());
     }
 
-    let quota = [("cargo", QUOTA_CARGO), ("passenger", QUOTA_PASSENGER), ("tanker", QUOTA_TANKER)];
+    let quota = [
+        ("cargo", QUOTA_CARGO),
+        ("passenger", QUOTA_PASSENGER),
+        ("tanker", QUOTA_TANKER),
+    ];
     let mut candidates: Vec<(u64, VesselInfo)> = Vec::new();
     for (type_name, max) in quota {
         if let Some(bucket) = by_type.remove(type_name) {
@@ -214,7 +210,7 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    eprintln!("Writing {} routes to {:?}", routes.len(), out_path);
+    eprintln!("Writing {} routes to {}", routes.len(), out_path.display());
     let json_str = serde_json::to_string_pretty(&routes)?;
     fs::write(&out_path, json_str)?;
     eprintln!("Done.");
@@ -242,20 +238,20 @@ fn parse_row(line: &str) -> Option<Row> {
     //         6=ROT, 7=SOG, 8=COG, 9=Heading, 10=IMO, 11=Callsign, 12=Name,
     //         13=ShipType, ...
     let mut fields = line.splitn(25, ',');
-    let timestamp = fields.next()?;            // 0
-    let mobile_type = fields.next()?.trim();   // 1
-    let mmsi_str = fields.next()?.trim();      // 2
-    let lat_str = fields.next()?.trim();       // 3
-    let lon_str = fields.next()?.trim();       // 4
-    let _nav = fields.next();                  // 5
-    let _rot = fields.next();                  // 6
-    let sog_str = fields.next()?.trim();       // 7
-    let _cog = fields.next();                  // 8
-    let _hdg = fields.next();                  // 9
-    let _imo = fields.next();                  // 10
-    let _call = fields.next();                 // 11
-    let name = fields.next()?.trim();          // 12
-    let ship_type = fields.next()?.trim();     // 13
+    let timestamp = fields.next()?; // 0
+    let mobile_type = fields.next()?.trim(); // 1
+    let mmsi_str = fields.next()?.trim(); // 2
+    let lat_str = fields.next()?.trim(); // 3
+    let lon_str = fields.next()?.trim(); // 4
+    let _nav = fields.next(); // 5
+    let _rot = fields.next(); // 6
+    let sog_str = fields.next()?.trim(); // 7
+    let _cog = fields.next(); // 8
+    let _hdg = fields.next(); // 9
+    let _imo = fields.next(); // 10
+    let _call = fields.next(); // 11
+    let name = fields.next()?.trim(); // 12
+    let ship_type = fields.next()?.trim(); // 13
 
     let mmsi: u64 = mmsi_str.parse().ok()?;
     let lat: f32 = lat_str.parse().ok()?;
@@ -299,8 +295,6 @@ fn parse_timestamp(s: &str) -> Option<(u32, u32)> {
 }
 
 fn days_from_2026(year: u32, month: u32, day: u32) -> u32 {
-    // Days per month (non-leap year), good enough for 2026
-    const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let year_days = (year.saturating_sub(2026)) * 365;
     let month_days: u32 = DAYS_IN_MONTH[..((month as usize).saturating_sub(1)).min(12)]
         .iter()
@@ -315,7 +309,6 @@ fn format_timestamp(time_min: u32) -> String {
     let hour = total_hr % 24;
     let total_days = total_hr / 24;
 
-    const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut remaining = total_days;
     let mut year = 2026u32;
     let mut month = 1u32;

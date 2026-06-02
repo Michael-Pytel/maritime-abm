@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Cell, RadarChart, Radar,
   PolarGrid, PolarAngleAxis,
 } from "recharts";
@@ -109,12 +109,11 @@ export default function StatsPanel() {
   const [filterSig, setFilterSig] = useState(false);
   const [scenario, setScenario]   = useState("CalmPassage");
   const [sortBy, setSortBy]       = useState<SortKey>("effect");
-  const [loading, setLoading]     = useState(false);
+  const [loading, setLoading]     = useState(true);
   const [view, setView]           = useState<View>("table");
   const [outlierKpi, setOutlierKpi] = useState("survival_ratio");
 
   async function load() {
-    setLoading(true);
     try {
       const [hyp, res] = await Promise.all([
         fetch(`${API}/sim/batch/hypothesis`).then(r => r.json() as Promise<HypothesisResult[]>),

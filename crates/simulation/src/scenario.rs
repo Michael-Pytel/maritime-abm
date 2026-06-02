@@ -156,11 +156,14 @@ impl SimConfig {
         self.collision_trigger_field = 2.0 * self.collision_radius_nm;
     }
 
+    #[must_use]
     pub fn for_scenario(scenario: Scenario, method: Method, seed: u64) -> Self {
-        let mut cfg = Self::default();
-        cfg.scenario = scenario;
-        cfg.method = method;
-        cfg.seed = seed;
+        let mut cfg = Self {
+            scenario,
+            method,
+            seed,
+            ..Self::default()
+        };
         match scenario {
             Scenario::CalmPassage => {
                 cfg.n_vessels = 20;
@@ -170,21 +173,21 @@ impl SimConfig {
                 cfg.n_vessels = 25;
                 cfg.weather_preset = WeatherPreset::Stormy;
                 cfg.storm_enabled = true;
-                cfg.storm_radius_nm = 160.0;         // wider zone
+                cfg.storm_radius_nm = 160.0; // wider zone
                 cfg.storm_comms_success_rate = 0.08; // 92 % of warnings lost — near-blackout
-                cfg.storm_speed_factor = 0.45;       // vessels crawl at 45 % speed
-                // 0.30 nm/tick ≈ 1.2 kn.  Total track ≈ 860 nm → ~2870 ticks,
-                // which fills a standard 2880-tick run almost exactly.
+                cfg.storm_speed_factor = 0.45; // vessels crawl at 45 % speed
+                                               // 0.30 nm/tick ≈ 1.2 kn.  Total track ≈ 860 nm → ~2870 ticks,
+                                               // which fills a standard 2880-tick run almost exactly.
                 cfg.storm_drift_nm_per_tick = 0.30;
                 // Track: English Channel → Southern North Sea → Skagerrak
                 //        → Kattegat → Western Baltic → Gdańsk
                 cfg.storm_track = vec![
-                    [51.0,  2.0],   // English Channel (spawn point)
-                    [53.5,  4.5],   // Southern North Sea, off Netherlands coast
-                    [57.0,  9.5],   // Skagerrak entrance
-                    [56.5, 12.0],   // Kattegat
-                    [55.5, 15.0],   // Western Baltic, south of Gotland
-                    [54.4, 18.6],   // Gdańsk Bay (terminus)
+                    [51.0, 2.0],  // English Channel (spawn point)
+                    [53.5, 4.5],  // Southern North Sea, off Netherlands coast
+                    [57.0, 9.5],  // Skagerrak entrance
+                    [56.5, 12.0], // Kattegat
+                    [55.5, 15.0], // Western Baltic, south of Gotland
+                    [54.4, 18.6], // Gdańsk Bay (terminus)
                 ];
             }
             Scenario::BlindShore => {
@@ -212,17 +215,9 @@ impl SimConfig {
                 cfg.storm_comms_success_rate = 1.0;
                 cfg.storm_speed_factor = 1.0;
             }
-            Method::BaselineB => {
-                // Shore-only: shore forecast reaches vessels in range and affects
-                // behaviour, but no peer relay and no confidence fusion.
-                // Storm comms degradation applies (shore radio is impaired by weather)
-                // but the mesh is absent so offshore vessels are blind.
-                // Full implementation in a later milestone; physics identical to
-                // ProposedSystem for now — differentiation added when the weather
-                // grid and shore broadcast are wired up.
-            }
-            Method::ProposedSystem => {
-                // Full system — scenario defaults already set above.
+            Method::BaselineB | Method::ProposedSystem => {
+                // BaselineB: shore-only; mesh absent so offshore vessels are blind.
+                // ProposedSystem: full system — scenario defaults already set above.
             }
         }
 

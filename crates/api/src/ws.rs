@@ -1,17 +1,14 @@
+use axum::extract::ws::{Message, WebSocket};
 use axum::{
     extract::{State, WebSocketUpgrade},
     response::Response,
 };
-use axum::extract::ws::{Message, WebSocket};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::routes::AppState;
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(app): State<Arc<AppState>>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(app): State<Arc<AppState>>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, app))
 }
 

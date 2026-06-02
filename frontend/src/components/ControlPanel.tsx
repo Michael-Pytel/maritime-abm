@@ -16,7 +16,7 @@ const KPI_OPTS: { key: SeedKpiKey; label: string; higherIsBetter: boolean }[] = 
   { key: "avg_tta_hours",    label: "Avg TTA hours",  higherIsBetter: false },
 ];
 
-export default function ControlPanel({ connected, step }: Props) {
+export default function ControlPanel({ connected: _connected, step: _step }: Props) {
   const [scenario, setScenario] = useState("CalmPassage");
   const [method, setMethod] = useState("ProposedSystem");
   const [seed, setSeed] = useState(42);

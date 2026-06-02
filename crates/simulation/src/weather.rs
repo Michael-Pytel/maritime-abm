@@ -50,7 +50,7 @@ const P_SC_DEFAULT: f64 = 0.08; // storm → calm per tick
 
 // ── Storm cell parameters ──────────────────────────────────────────────────
 
-const CELL_DRIFT_SPEED: f64 = 0.6;     // grid-cells/tick
+const CELL_DRIFT_SPEED: f64 = 0.6; // grid-cells/tick
 const DECAY_IN_STORM: f64 = 0.006;
 const DECAY_IN_CALM: f64 = 0.020;
 const MIN_INTENSITY: f64 = 0.12;
@@ -95,11 +95,11 @@ pub enum Regime {
 
 #[derive(Debug, Clone)]
 struct StormCell {
-    cx: f64,          // centre column (grid-cell coords)
-    cy: f64,          // centre row
-    radius: f64,      // grid-cells
-    intensity: f64,   // [0, 1]
-    dx: f64,          // drift per tick
+    cx: f64,        // centre column (grid-cell coords)
+    cy: f64,        // centre row
+    radius: f64,    // grid-cells
+    intensity: f64, // [0, 1]
+    dx: f64,        // drift per tick
     dy: f64,
     radius_phase: f64, // phase for sinusoidal radius oscillation
 }
@@ -108,26 +108,26 @@ struct StormCell {
 
 #[derive(Debug, Clone)]
 pub struct WeatherField {
-    pub preset:  WeatherPreset,
-    pub regime:  Regime,
+    pub preset: WeatherPreset,
+    pub regime: Regime,
     /// Sea-state channel, row-major len = N.
-    sea:  Vec<f64>,
+    sea: Vec<f64>,
     /// Visibility channel (1 = perfect), len = N.
-    vis:  Vec<f64>,
+    vis: Vec<f64>,
     /// Wind channel, len = N.
     wind: Vec<f64>,
     /// Combined hazard W ∈ [0, 1], len = N.
     pub hazard: Vec<f64>,
-    storm_cells:  Vec<StormCell>,
-    adv_drift_x:  f64, // fractional advection accumulator
-    adv_drift_y:  f64,
-    adv_x:        i32, // integer cell offset (wraps)
-    adv_y:        i32,
-    p_cs:         f64, // calm → storm probability
-    p_sc:         f64, // storm → calm probability
-    mu_s:         f64, // current mean-reversion targets
-    mu_v:         f64,
-    mu_u:         f64,
+    storm_cells: Vec<StormCell>,
+    adv_drift_x: f64, // fractional advection accumulator
+    adv_drift_y: f64,
+    adv_x: i32, // integer cell offset (wraps)
+    adv_y: i32,
+    p_cs: f64, // calm → storm probability
+    p_sc: f64, // storm → calm probability
+    mu_s: f64, // current mean-reversion targets
+    mu_v: f64,
+    mu_u: f64,
 }
 
 impl WeatherField {
@@ -140,16 +140,16 @@ impl WeatherField {
         };
 
         let (p_cs, p_sc) = match preset {
-            WeatherPreset::Calm   => (P_CS_DEFAULT * 0.35, P_SC_DEFAULT * 1.40),
-            WeatherPreset::Mixed  => (P_CS_DEFAULT,        P_SC_DEFAULT),
+            WeatherPreset::Calm => (P_CS_DEFAULT * 0.35, P_SC_DEFAULT * 1.40),
+            WeatherPreset::Mixed => (P_CS_DEFAULT, P_SC_DEFAULT),
             WeatherPreset::Stormy => (P_CS_DEFAULT * 2.00, P_SC_DEFAULT * 0.50),
         };
 
         let (mu_s, mu_v, mu_u) = targets_for(regime);
 
         // Initialise channels near their regime targets with small noise.
-        let sea  = init_channel(mu_s, rng);
-        let vis  = init_channel(mu_v, rng);
+        let sea = init_channel(mu_s, rng);
+        let vis = init_channel(mu_v, rng);
         let wind = init_channel(mu_u, rng);
 
         let mut f = Self {
@@ -179,11 +179,16 @@ impl WeatherField {
     /// Returns W ∈ [0, 1] at a field-coordinate position `(fx, fy)`.
     ///
     /// `world_w` / `world_h` are the world extents in nautical miles.
+    #[must_use]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub fn hazard_at(&self, fx: f64, fy: f64, world_w: f64, world_h: f64) -> f64 {
-        let col = ((fx / world_w) * GRID_CELLS as f64)
-            .clamp(0.0, GRID_CELLS as f64 - 1.0) as usize;
-        let row = ((fy / world_h) * GRID_CELLS as f64)
-            .clamp(0.0, GRID_CELLS as f64 - 1.0) as usize;
+        let g = GRID_CELLS as f64;
+        let col = ((fx / world_w) * g).clamp(0.0, g - 1.0) as usize;
+        let row = ((fy / world_h) * g).clamp(0.0, g - 1.0) as usize;
         self.hazard[row * GRID_CELLS + col]
     }
 
@@ -202,12 +207,12 @@ impl WeatherField {
 
     fn stage1_regime(&mut self, rng: &mut impl Rng) {
         let flip = match self.regime {
-            Regime::Calm  => rng.gen::<f64>() < self.p_cs,
+            Regime::Calm => rng.gen::<f64>() < self.p_cs,
             Regime::Storm => rng.gen::<f64>() < self.p_sc,
         };
         if flip {
             self.regime = match self.regime {
-                Regime::Calm  => Regime::Storm,
+                Regime::Calm => Regime::Storm,
                 Regime::Storm => Regime::Calm,
             };
             let (mu_s, mu_v, mu_u) = targets_for(self.regime);
@@ -222,11 +227,11 @@ impl WeatherField {
     fn stage2_cells(&mut self, rng: &mut impl Rng) {
         let decay = match self.regime {
             Regime::Storm => DECAY_IN_STORM,
-            Regime::Calm  => DECAY_IN_CALM,
+            Regime::Calm => DECAY_IN_CALM,
         };
         let r_mult = match self.regime {
             Regime::Storm => R_STORM,
-            Regime::Calm  => R_CALM,
+            Regime::Calm => R_CALM,
         };
 
         // Drift, oscillate radius, and decay.
@@ -235,12 +240,13 @@ impl WeatherField {
             cell.cy += cell.dy;
             cell.intensity -= decay;
             cell.radius_phase += 0.08;
-            cell.radius = CELL_RADIUS_BASE
-                * (1.0 + 0.15 * cell.radius_phase.sin())
-                * cell.intensity.sqrt(); // cells shrink as they fade
+            cell.radius =
+                CELL_RADIUS_BASE * (1.0 + 0.15 * cell.radius_phase.sin()) * cell.intensity.sqrt();
+            // cells shrink as they fade
         }
 
         // Remove exhausted or off-grid cells.
+        #[allow(clippy::cast_precision_loss)]
         let g = GRID_CELLS as f64;
         self.storm_cells.retain(|c| {
             c.intensity >= MIN_INTENSITY
@@ -251,12 +257,10 @@ impl WeatherField {
         });
 
         // Spawn a new cell.
-        if self.storm_cells.len() < MAX_CELLS
-            && rng.gen::<f64>() < P_SPAWN_BASE * r_mult
-        {
+        if self.storm_cells.len() < MAX_CELLS && rng.gen::<f64>() < P_SPAWN_BASE * r_mult {
             let bearing = rng.gen::<f64>() * std::f64::consts::TAU;
-            let speed   = CELL_DRIFT_SPEED * (0.5 + rng.gen::<f64>() * 0.5);
-            let jitter  = 0.3;
+            let speed = CELL_DRIFT_SPEED * (0.5 + rng.gen::<f64>() * 0.5);
+            let jitter = 0.3;
             self.storm_cells.push(StormCell {
                 cx: rng.gen::<f64>() * g,
                 cy: rng.gen::<f64>() * g,
@@ -277,22 +281,56 @@ impl WeatherField {
         // Slowly drift advection offset (weather patterns advect eastward/NE).
         self.adv_drift_x += 0.018;
         self.adv_drift_y += 0.008;
-        while self.adv_drift_x >= 1.0 { self.adv_drift_x -= 1.0; self.adv_x += 1; }
-        while self.adv_drift_x <= -1.0 { self.adv_drift_x += 1.0; self.adv_x -= 1; }
-        while self.adv_drift_y >= 1.0 { self.adv_drift_y -= 1.0; self.adv_y += 1; }
-        while self.adv_drift_y <= -1.0 { self.adv_drift_y += 1.0; self.adv_y -= 1; }
+        while self.adv_drift_x >= 1.0 {
+            self.adv_drift_x -= 1.0;
+            self.adv_x += 1;
+        }
+        while self.adv_drift_x <= -1.0 {
+            self.adv_drift_x += 1.0;
+            self.adv_x -= 1;
+        }
+        while self.adv_drift_y >= 1.0 {
+            self.adv_drift_y -= 1.0;
+            self.adv_y += 1;
+        }
+        while self.adv_drift_y <= -1.0 {
+            self.adv_drift_y += 1.0;
+            self.adv_y -= 1;
+        }
 
         let u = 0.30_f64; // scenario unpredictability (default)
 
-        self.sea  = ar1_step(advect(&self.sea,  self.adv_x, self.adv_y), RHO_S, self.mu_s, SIGMA_S, u, rng);
-        self.vis  = ar1_step(advect(&self.vis,  self.adv_x, self.adv_y), RHO_V, self.mu_v, SIGMA_V, u, rng);
-        self.wind = ar1_step(advect(&self.wind, self.adv_x, self.adv_y), RHO_U, self.mu_u, SIGMA_U, u, rng);
+        self.sea = ar1_step(
+            advect(&self.sea, self.adv_x, self.adv_y),
+            RHO_S,
+            self.mu_s,
+            SIGMA_S,
+            u,
+            rng,
+        );
+        self.vis = ar1_step(
+            advect(&self.vis, self.adv_x, self.adv_y),
+            RHO_V,
+            self.mu_v,
+            SIGMA_V,
+            u,
+            rng,
+        );
+        self.wind = ar1_step(
+            advect(&self.wind, self.adv_x, self.adv_y),
+            RHO_U,
+            self.mu_u,
+            SIGMA_U,
+            u,
+            rng,
+        );
     }
 
     // ── Stage 4 — System overlay ───────────────────────────────────────────
     // Each active storm cell adds intensity-weighted Gaussian blobs to sea
     // and wind, and subtracts from visibility.
 
+    #[allow(clippy::cast_precision_loss)]
     fn stage4_overlay(&mut self) {
         for row in 0..GRID_CELLS {
             for col in 0..GRID_CELLS {
@@ -309,8 +347,7 @@ impl WeatherField {
                     let dy = cy - cell.cy;
                     let d2 = dx * dx + dy * dy;
                     if d2 < cell.radius * cell.radius {
-                        let w = (1.0 - (d2 / (cell.radius * cell.radius)).sqrt())
-                            .powi(2)
+                        let w = (1.0 - (d2 / (cell.radius * cell.radius)).sqrt()).powi(2)
                             * cell.intensity;
                         add_s += w;
                         sub_v += w * 0.85;
@@ -318,8 +355,8 @@ impl WeatherField {
                     }
                 }
 
-                self.sea[idx]  = (self.sea[idx]  + add_s).min(1.0);
-                self.vis[idx]  = (self.vis[idx]  - sub_v).max(0.0);
+                self.sea[idx] = (self.sea[idx] + add_s).min(1.0);
+                self.vis[idx] = (self.vis[idx] - sub_v).max(0.0);
                 self.wind[idx] = (self.wind[idx] + add_u).min(1.0);
             }
         }
@@ -333,7 +370,7 @@ impl WeatherField {
             let s = self.sea[i];
             let v = self.vis[i];
             let u = self.wind[i];
-            self.sea[i]  = (s + 0.35 * (u - 0.5) - 0.20 * (v - 0.5)).clamp(0.0, 1.0);
+            self.sea[i] = (s + 0.35 * (u - 0.5) - 0.20 * (v - 0.5)).clamp(0.0, 1.0);
             self.wind[i] = (u - 0.25 * (v - 0.5)).clamp(0.0, 1.0);
         }
     }
@@ -354,11 +391,10 @@ impl WeatherField {
 
     fn combine_hazard(&mut self) {
         for i in 0..N {
-            self.hazard[i] = ((W_SEA  * self.sea[i]
-                             + W_VIS  * (1.0 - self.vis[i])
-                             + W_WIND * self.wind[i])
-                / W_TOTAL)
-                .clamp(0.0, 1.0);
+            self.hazard[i] =
+                ((W_SEA * self.sea[i] + W_VIS * (1.0 - self.vis[i]) + W_WIND * self.wind[i])
+                    / W_TOTAL)
+                    .clamp(0.0, 1.0);
         }
     }
 }
@@ -368,7 +404,7 @@ impl WeatherField {
 fn targets_for(regime: Regime) -> (f64, f64, f64) {
     match regime {
         Regime::Storm => (MU_S_STORM, MU_V_STORM, MU_U_STORM),
-        Regime::Calm  => (MU_S_CALM,  MU_V_CALM,  MU_U_CALM),
+        Regime::Calm => (MU_S_CALM, MU_V_CALM, MU_U_CALM),
     }
 }
 
@@ -379,6 +415,11 @@ fn init_channel(mu: f64, rng: &mut impl Rng) -> Vec<f64> {
 }
 
 /// Circular shift of a 50×50 grid by `(ox, oy)` integer cell offsets.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 fn advect(grid: &[f64], ox: i32, oy: i32) -> Vec<f64> {
     let g = GRID_CELLS as i32;
     let mut out = vec![0.0; N];
@@ -394,14 +435,7 @@ fn advect(grid: &[f64], ox: i32, oy: i32) -> Vec<f64> {
 }
 
 /// AR(1) update with additive Gaussian-like noise.
-fn ar1_step(
-    grid: Vec<f64>,
-    rho: f64,
-    mu: f64,
-    sigma: f64,
-    u: f64,
-    rng: &mut impl Rng,
-) -> Vec<f64> {
+fn ar1_step(grid: Vec<f64>, rho: f64, mu: f64, sigma: f64, u: f64, rng: &mut impl Rng) -> Vec<f64> {
     grid.into_iter()
         .map(|x| {
             let eta: f64 = rng.gen::<f64>() * 2.0 - 1.0;
@@ -411,8 +445,13 @@ fn ar1_step(
 }
 
 /// 5-point neighbourhood smoother (centre weight = 2).
-fn smooth(grid: &mut Vec<f64>) {
-    let src = grid.clone();
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+fn smooth(grid: &mut [f64]) {
+    let src = grid.to_vec();
     let g = GRID_CELLS as i32;
     for row in 0..g {
         for col in 0..g {
@@ -432,8 +471,13 @@ fn smooth(grid: &mut Vec<f64>) {
 }
 
 /// Single-pass gradient limiter: caps cell-to-cell change to `MAX_GRADIENT`.
-fn limit_gradient(grid: &mut Vec<f64>) {
-    let src = grid.clone();
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+fn limit_gradient(grid: &mut [f64]) {
+    let src = grid.to_vec();
     let g = GRID_CELLS as i32;
     for row in 0..g {
         for col in 0..g {
@@ -459,8 +503,8 @@ fn limit_gradient(grid: &mut Vec<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
     use rand::rngs::SmallRng;
+    use rand::SeedableRng;
 
     #[test]
     fn hazard_stays_in_unit_interval() {
@@ -470,7 +514,7 @@ mod tests {
             field.update(&mut rng);
         }
         for &w in &field.hazard {
-            assert!(w >= 0.0 && w <= 1.0, "hazard out of range: {w}");
+            assert!((0.0..=1.0).contains(&w), "hazard out of range: {w}");
         }
     }
 
@@ -478,14 +522,19 @@ mod tests {
     fn stormy_preset_higher_mean_than_calm() {
         let mut rng = SmallRng::seed_from_u64(7);
         let mut stormy = WeatherField::new(WeatherPreset::Stormy, &mut rng);
-        let mut calm   = WeatherField::new(WeatherPreset::Calm,   &mut rng);
+        let mut calm = WeatherField::new(WeatherPreset::Calm, &mut rng);
         for _ in 0..200 {
             stormy.update(&mut rng);
             calm.update(&mut rng);
         }
+        #[allow(clippy::cast_precision_loss)]
         let mean_s: f64 = stormy.hazard.iter().sum::<f64>() / stormy.hazard.len() as f64;
-        let mean_c: f64 = calm.hazard.iter().sum::<f64>()   / calm.hazard.len()   as f64;
-        assert!(mean_s > mean_c, "stormy mean {mean_s:.3} not > calm mean {mean_c:.3}");
+        #[allow(clippy::cast_precision_loss)]
+        let mean_c: f64 = calm.hazard.iter().sum::<f64>() / calm.hazard.len() as f64;
+        assert!(
+            mean_s > mean_c,
+            "stormy mean {mean_s:.3} not > calm mean {mean_c:.3}"
+        );
     }
 
     #[test]
@@ -494,6 +543,6 @@ mod tests {
         let field = WeatherField::new(WeatherPreset::Mixed, &mut rng);
         // Should not panic and should return a value in [0,1].
         let w = field.hazard_at(500.0, 400.0, 1000.0, 900.0);
-        assert!(w >= 0.0 && w <= 1.0);
+        assert!((0.0..=1.0).contains(&w));
     }
 }

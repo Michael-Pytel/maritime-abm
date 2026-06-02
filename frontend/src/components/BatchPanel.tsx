@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type { BatchStatus, BatchResult, KpiSnapshot } from "../types";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer,
 } from "recharts";
 
 const API = "http://localhost:3000";

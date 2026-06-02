@@ -43,9 +43,14 @@ pub fn spawn_sim(config: SimConfig) -> Result<SimHandle> {
         }
     });
 
-    Ok(SimHandle { snapshot_rx, stop_tx, latest_kpi })
+    Ok(SimHandle {
+        snapshot_rx,
+        stop_tx,
+        latest_kpi,
+    })
 }
 
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 pub fn spawn_batch(
     n_seeds: u32,
     n_ticks: u32,
@@ -56,7 +61,7 @@ pub fn spawn_batch(
     methods: Vec<Method>,
     batch_id: String,
 ) -> Arc<Mutex<BatchState>> {
-    let seeds: Vec<u64> = (1..=n_seeds as u64).collect();
+    let seeds: Vec<u64> = (1..=u64::from(n_seeds)).collect();
 
     let runs: Vec<(Scenario, Method, u64)> = scenarios
         .iter()
@@ -82,19 +87,13 @@ pub fn spawn_batch(
     }));
     let batch2 = Arc::clone(&batch);
 
-    let ais = ais_path.clone();
-    let land = land_mask_path.clone();
-
     tokio::task::spawn_blocking(move || {
         std::fs::create_dir_all(&output_dir).ok();
 
         let csv_path = format!("{output_dir}/summary.csv");
         if !std::path::Path::new(&csv_path).exists() {
             if let Ok(mut f) = std::fs::File::create(&csv_path) {
-                let _ = writeln!(
-                    f,
-                    "scenario,method,seed,collision_per_1k_hrs"
-                );
+                let _ = writeln!(f, "scenario,method,seed,collision_per_1k_hrs");
             }
         }
 
@@ -102,8 +101,8 @@ pub fn spawn_batch(
 
         runs.into_par_iter().for_each(|(scenario, method, seed)| {
             let mut cfg = SimConfig::for_scenario(scenario, method, seed);
-            cfg.ais_path = ais.clone();
-            cfg.land_mask_path = land.clone();
+            cfg.ais_path.clone_from(&ais_path);
+            cfg.land_mask_path.clone_from(&land_mask_path);
             cfg.n_ticks = n_ticks;
             cfg.snapshot_every_n_ticks = 0; // no live WS broadcasting during batch
 
@@ -135,11 +134,7 @@ pub fn spawn_batch(
                     "kpis": kpi,
                 });
                 if let Ok(content) = serde_json::to_string_pretty(&manifest) {
-                    std::fs::write(
-                        format!("{output_dir}/{run_id}_manifest.json"),
-                        content,
-                    )
-                    .ok();
+                    std::fs::write(format!("{output_dir}/{run_id}_manifest.json"), content).ok();
                 }
 
                 let csv_row = format!(

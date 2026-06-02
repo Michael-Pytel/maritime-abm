@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, memo } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import type { TickMessage, WeatherChannel, WeatherChannels, WeatherMeta } from "../types";
+import type { TickMessage, WeatherChannel, WeatherChannels } from "../types";
 import GradientOverlay from "./GradientOverlay";
 import WindParticles from "./WindParticles";
 import IsobarLayer from "./IsobarLayer";

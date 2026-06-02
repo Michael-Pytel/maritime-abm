@@ -16,8 +16,8 @@ fn cfg_calm_baseline_a(seed: u64) -> SimConfig {
     cfg
 }
 
-/// Scenario 1 (CalmPassage / BaselineA) calibration target from report Section 5.2:
-/// mean collision_per_1k_hrs < 0.5 across 5 seeds.
+/// Scenario 1 (`CalmPassage` / `BaselineA`) calibration target from report Section 5.2:
+/// mean `collision_per_1k_hrs` < 0.5 across 5 seeds.
 #[test]
 #[ignore = "slow calibration run (5 seeds × 2880 ticks); run with --include-ignored"]
 fn test_scenario1_collision_calibration() {
@@ -25,13 +25,14 @@ fn test_scenario1_collision_calibration() {
     let mut total_collision_rate = 0.0f64;
 
     for seed in seeds {
-        let mut wrapper = SimStateWrapper::new(cfg_calm_baseline_a(seed))
-            .expect("failed to init SimState");
+        let mut wrapper =
+            SimStateWrapper::new(cfg_calm_baseline_a(seed)).expect("failed to init SimState");
         wrapper.run_blocking();
         let kpi = wrapper.inner.kpi_snapshot();
         total_collision_rate += kpi.collision_per_1k_hrs;
     }
 
+    #[allow(clippy::cast_precision_loss)]
     let mean_collision_per_1k_hrs = total_collision_rate / seeds.len() as f64;
     assert!(
         mean_collision_per_1k_hrs < 0.5,

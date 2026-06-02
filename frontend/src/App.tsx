@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, Component } from "react";
+import { useState, useEffect, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { useSimSocket } from "./hooks/useSimSocket";
 import { usePlayback } from "./hooks/usePlayback";
@@ -33,36 +33,32 @@ type TelemetryPoint = TelemetrySnapshot & { step: number };
 
 export default function App() {
   const { tick, connected } = useSimSocket();
-  const kpiHistoryRef       = useRef<KpiSnapshot[]>([]);
-  const telemetryHistoryRef = useRef<TelemetryPoint[]>([]);
-  const [historyVer, setHistoryVer] = useState(0);
+  const [kpiHistory, setKpiHistory]             = useState<KpiSnapshot[]>([]);
+  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryPoint[]>([]);
   const [tab, setTab] = useState<Tab>("live");
 
   const playback = usePlayback();
 
   useEffect(() => {
     if (!tick) return;
-    const kh = kpiHistoryRef.current;
-    if (kh.length > 0 && kh[kh.length - 1].step === tick.step) return;
-    const next = kh.length >= MAX_HISTORY ? kh.slice(1) : kh.slice();
-    next.push(tick.kpis);
-    kpiHistoryRef.current = next;
-
-    if (tick.telemetry) {
-      const th = telemetryHistoryRef.current;
-      const point: TelemetryPoint = { ...tick.telemetry, step: tick.step };
-      const nextTh = th.length >= MAX_HISTORY ? th.slice(1) : th.slice();
-      nextTh.push(point);
-      telemetryHistoryRef.current = nextTh;
-    }
-    setHistoryVer(v => v + 1);
+    // Defer to a microtask so no setState is called synchronously in the effect body.
+    Promise.resolve().then(() => {
+      setKpiHistory(prev => {
+        if (prev.length > 0 && prev[prev.length - 1].step === tick.step) return prev;
+        const next = prev.length >= MAX_HISTORY ? prev.slice(1) : [...prev];
+        next.push(tick.kpis);
+        return next;
+      });
+      if (tick.telemetry) {
+        const point: TelemetryPoint = { ...tick.telemetry, step: tick.step };
+        setTelemetryHistory(prev => {
+          const next = prev.length >= MAX_HISTORY ? prev.slice(1) : [...prev];
+          next.push(point);
+          return next;
+        });
+      }
+    });
   }, [tick]);
-
-  const kpiHistory       = kpiHistoryRef.current;
-  const telemetryHistory = telemetryHistoryRef.current;
-
-  // suppress unused var warning from historyVer
-  void historyVer;
 
   const vessels    = tick?.vessels    ?? EMPTY;
   const step       = tick?.step       ?? 0;

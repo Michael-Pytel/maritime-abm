@@ -37,6 +37,7 @@ pub const NM_PER_DEG_LAT: f64 = 60.0;
 /// Returns the midpoint latitude of the domain, used as the reference
 /// parallel for the equirectangular projection.
 #[inline]
+#[must_use]
 pub fn lat_mid() -> f64 {
     0.5 * (LAT_MIN + LAT_MAX)
 }
@@ -44,6 +45,7 @@ pub fn lat_mid() -> f64 {
 /// Returns the nautical-miles-per-degree-longitude scale factor at the
 /// reference latitude, i.e. `60 · cos(φ_mid)`.
 #[inline]
+#[must_use]
 pub fn nm_per_deg_lon() -> f64 {
     NM_PER_DEG_LAT * lat_mid().to_radians().cos()
 }
@@ -51,6 +53,7 @@ pub fn nm_per_deg_lon() -> f64 {
 /// Width of the simulation field in nautical miles.
 /// Approximately 1136 nm for the default Baltic + North Sea bbox.
 #[inline]
+#[must_use]
 pub fn field_width_nm() -> f64 {
     (LON_MAX - LON_MIN) * nm_per_deg_lon()
 }
@@ -58,6 +61,7 @@ pub fn field_width_nm() -> f64 {
 /// Height of the simulation field in nautical miles.
 /// Exactly 15.5° × 60 nm = 930 nm for the default bbox.
 #[inline]
+#[must_use]
 pub fn field_height_nm() -> f64 {
     (LAT_MAX - LAT_MIN) * NM_PER_DEG_LAT
 }
@@ -67,6 +71,7 @@ pub fn field_height_nm() -> f64 {
 /// `x` increases eastward from `LON_MIN`; `y` increases northward from
 /// `LAT_MIN`.  The map is equirectangular: one field-unit step in either
 /// axis is exactly one nautical mile at the reference latitude.
+#[must_use]
 pub fn lat_lon_to_field(lat: f64, lon: f64) -> (f64, f64) {
     let x = (lon - LON_MIN) * nm_per_deg_lon();
     let y = (lat - LAT_MIN) * NM_PER_DEG_LAT;
@@ -74,6 +79,7 @@ pub fn lat_lon_to_field(lat: f64, lon: f64) -> (f64, f64) {
 }
 
 /// Inverse of `lat_lon_to_field`.
+#[must_use]
 pub fn field_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
     let lon = x / nm_per_deg_lon() + LON_MIN;
     let lat = y / NM_PER_DEG_LAT + LAT_MIN;
@@ -82,6 +88,7 @@ pub fn field_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
 
 /// Returns `true` if a field coordinate lies inside the simulation domain.
 #[inline]
+#[must_use]
 pub fn in_bounds(x: f64, y: f64) -> bool {
     x >= 0.0 && x <= field_width_nm() && y >= 0.0 && y <= field_height_nm()
 }
@@ -143,6 +150,7 @@ pub struct Port {
 /// Point-in-polygon test using the ray-casting algorithm.
 /// `polygon` is a slice of (x, y) field-coordinate vertices (closed implicitly).
 /// Returns `true` when `(px, py)` is strictly inside.
+#[must_use]
 pub fn point_in_polygon(px: f64, py: f64, polygon: &[(f64, f64)]) -> bool {
     let n = polygon.len();
     if n < 3 {
@@ -165,9 +173,12 @@ pub fn point_in_polygon(px: f64, py: f64, polygon: &[(f64, f64)]) -> bool {
 }
 
 /// Loads AIS records from a JSON file.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the JSON is malformed.
 pub fn load_ais(path: &str) -> Result<Vec<AisRecord>> {
-    let contents = fs::read_to_string(path)
-        .with_context(|| format!("failed to read AIS file: {path}"))?;
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read AIS file: {path}"))?;
     let records: Vec<AisRecord> = serde_json::from_str(&contents)
         .with_context(|| format!("failed to parse AIS JSON: {path}"))?;
     Ok(records)
@@ -175,11 +186,14 @@ pub fn load_ais(path: &str) -> Result<Vec<AisRecord>> {
 
 /// Loads port definitions from a `ports.json` file.
 ///
+/// # Errors
+/// Returns an error if the file cannot be read or the JSON is malformed.
+///
 /// Each port's 4 keypoints define a quadrilateral bounding polygon.  The
 /// centroid is computed automatically as the mean of the corners.
 pub fn load_ports_from_file(path: &str) -> Result<Vec<Port>> {
-    let contents = fs::read_to_string(path)
-        .with_context(|| format!("failed to read ports file: {path}"))?;
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read ports file: {path}"))?;
     let records: Vec<PortRecord> = serde_json::from_str(&contents)
         .with_context(|| format!("failed to parse ports JSON: {path}"))?;
 
@@ -192,11 +206,14 @@ pub fn load_ports_from_file(path: &str) -> Result<Vec<Port>> {
                 .iter()
                 .map(|kp| lat_lon_to_field(kp.lat, kp.lon))
                 .collect();
+            #[allow(clippy::cast_precision_loss)]
             let n = polygon.len() as f64;
             let cx = polygon.iter().map(|p| p.0).sum::<f64>() / n;
             let cy = polygon.iter().map(|p| p.1).sum::<f64>() / n;
+            #[allow(clippy::cast_possible_truncation)]
+            let id = i as u32;
             Port {
-                id: i as u32,
+                id,
                 name: rec.name,
                 position: (cx, cy),
                 polygon,
@@ -213,6 +230,9 @@ pub fn load_ports_from_file(path: &str) -> Result<Vec<Port>> {
 ///
 /// Used when the simulation has no explicit `ports.json` — ports are
 /// inferred from the start and end waypoints of each polyline.
+/// # Panics
+/// Panics if a record has waypoints but `first()` or `last()` returns `None` (can't happen).
+#[must_use]
 pub fn extract_ports(ais: &[AisRecord], dedup_radius_nm: f64) -> Vec<Port> {
     let mut ports: Vec<Port> = Vec::new();
     let r2 = dedup_radius_nm * dedup_radius_nm;
@@ -258,10 +278,22 @@ mod tests {
         let records = load_ais(path).unwrap();
         assert!(!records.is_empty(), "expected at least one AIS record");
         for r in &records {
-            assert!(r.waypoints.len() >= 2, "vessel {} has fewer than 2 waypoints", r.mmsi);
+            assert!(
+                r.waypoints.len() >= 2,
+                "vessel {} has fewer than 2 waypoints",
+                r.mmsi
+            );
             for wp in &r.waypoints {
-                assert!((-90.0..=90.0).contains(&wp.lat), "lat out of range: {}", wp.lat);
-                assert!((-180.0..=180.0).contains(&wp.lon), "lon out of range: {}", wp.lon);
+                assert!(
+                    (-90.0..=90.0).contains(&wp.lat),
+                    "lat out of range: {}",
+                    wp.lat
+                );
+                assert!(
+                    (-180.0..=180.0).contains(&wp.lon),
+                    "lon out of range: {}",
+                    wp.lon
+                );
             }
         }
     }
@@ -279,8 +311,14 @@ mod tests {
         for (lat, lon) in cases {
             let (x, y) = lat_lon_to_field(lat, lon);
             let (lat2, lon2) = field_to_lat_lon(x, y);
-            assert!((lat - lat2).abs() < 1e-9, "lat round-trip failed: {lat} → {lat2}");
-            assert!((lon - lon2).abs() < 1e-9, "lon round-trip failed: {lon} → {lon2}");
+            assert!(
+                (lat - lat2).abs() < 1e-9,
+                "lat round-trip failed: {lat} → {lat2}"
+            );
+            assert!(
+                (lon - lon2).abs() < 1e-9,
+                "lon round-trip failed: {lon} → {lon2}"
+            );
         }
     }
 
@@ -308,7 +346,10 @@ mod tests {
             (60.171, 24.941), // Helsinki
         ] {
             let (x, y) = lat_lon_to_field(lat, lon);
-            assert!(in_bounds(x, y), "({lat},{lon}) → ({x:.1},{y:.1}) out of domain");
+            assert!(
+                in_bounds(x, y),
+                "({lat},{lon}) → ({x:.1},{y:.1}) out of domain"
+            );
         }
     }
 }
