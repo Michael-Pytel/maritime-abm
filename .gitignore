@@ -34,3 +34,6 @@ Thumbs.db
 
 # Report build artifacts
 report/build_latex/report.pdf
+
+# local pdf citings
+/citings
