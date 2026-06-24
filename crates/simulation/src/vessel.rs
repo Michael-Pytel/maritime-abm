@@ -30,8 +30,39 @@ const FATIGUE_COMMS_PENALTY: f64 = 0.65;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum VesselState {
+    /// Under way along its route: navigates, can collide, accrues ship-hours.
     Active,
+    /// In port for a dwell period; crew recovers fatigue.
     Docked,
+    /// Foundered — survivors in a liferaft awaiting rescue (SAR chain active).
+    Evac,
+    /// Survivors recovered by a rescue asset. Terminal; the vessel respawns.
+    Rescued,
+    /// Lost with no survivors recovered. Terminal; the vessel respawns.
+    Lost,
+}
+
+impl VesselState {
+    /// Whether the vessel is under way (navigates, can collide, accrues ship-hours).
+    #[must_use]
+    pub fn is_active(self) -> bool {
+        matches!(self, VesselState::Active)
+    }
+
+    /// Whether the vessel is in the SAR chain (foundered, awaiting/after rescue).
+    #[must_use]
+    pub fn in_sar_chain(self) -> bool {
+        matches!(
+            self,
+            VesselState::Evac | VesselState::Rescued | VesselState::Lost
+        )
+    }
+
+    /// Whether the vessel has reached a terminal SAR outcome and should respawn.
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        matches!(self, VesselState::Rescued | VesselState::Lost)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -101,6 +132,43 @@ pub fn typical_speed_kn(vessel_type: &str, rand_frac: f64) -> f64 {
     }
 }
 
+/// Principal particulars of a vessel, derived from its type.
+///
+/// These feed the SIMCOL consequence model (collision energy depends on mass
+/// and length/beam set the non-dimensional damage extent) and IWRAP candidate
+/// counts (beam enters the geometric collision diameter). They are not used by
+/// navigation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShipDimensions {
+    /// Length between perpendiculars (m).
+    pub length_m: f64,
+    /// Moulded beam (m).
+    pub beam_m: f64,
+    /// Representative displacement mass (tonnes), excluding hydrodynamic added mass.
+    pub mass_tonnes: f64,
+}
+
+/// Returns representative principal particulars for a vessel type.
+///
+/// Values are order-of-magnitude representative figures for Baltic / North-Sea
+/// traffic classes (used for collision energy and geometric candidate counts),
+/// not measured per-ship data.
+#[must_use]
+pub fn ship_dimensions(vessel_type: &str) -> ShipDimensions {
+    let (length_m, beam_m, mass_tonnes) = match vessel_type.to_lowercase().as_str() {
+        "passenger" | "ferry" | "ro-ro" | "ro-pax" => (170.0, 28.0, 18_000.0),
+        "tanker" => (250.0, 44.0, 120_000.0),
+        "container" => (300.0, 48.0, 100_000.0),
+        "cargo" | "bulk" | "general cargo" => (190.0, 30.0, 45_000.0),
+        _ => (120.0, 20.0, 15_000.0),
+    };
+    ShipDimensions {
+        length_m,
+        beam_m,
+        mass_tonnes,
+    }
+}
+
 impl VesselAgent {
     pub fn step(&mut self, tick: u64, config: &SimConfig, land_mask: &LandMask, ports: &[Port]) {
         match self.state {
@@ -115,6 +183,10 @@ impl VesselAgent {
             VesselState::Active => {
                 self.navigate(tick, config, land_mask, ports);
             }
+            // In the SAR chain the vessel does not navigate; the rescue
+            // subsystem (see `post_tick`) drives its Evac → Rescued/Lost
+            // transitions and eventual respawn.
+            VesselState::Evac | VesselState::Rescued | VesselState::Lost => {}
         }
     }
 
@@ -303,6 +375,8 @@ impl VesselAgent {
 
                 self.fatigue = (self.fatigue + build * method_factor).min(1.0);
             }
+            // No crew-fatigue dynamics while in the SAR chain.
+            VesselState::Evac | VesselState::Rescued | VesselState::Lost => {}
         }
     }
 
@@ -490,5 +564,34 @@ mod tests {
             "avoided_vessel_id should capture the other vessel"
         );
         assert!(v.avoiding_vessel_id.is_none());
+    }
+
+    #[test]
+    fn ship_dimensions_are_type_specific_and_positive() {
+        let tanker = ship_dimensions("tanker");
+        let ferry = ship_dimensions("ferry");
+        let unknown = ship_dimensions("space-elevator");
+
+        // Every class yields strictly positive particulars.
+        for d in [tanker, ferry, unknown] {
+            assert!(d.length_m > 0.0 && d.beam_m > 0.0 && d.mass_tonnes > 0.0);
+            // Beam is always a sensible fraction of length.
+            assert!(d.beam_m < d.length_m);
+        }
+
+        // A laden tanker is far heavier than a ferry of similar role.
+        assert!(tanker.mass_tonnes > ferry.mass_tonnes);
+        // Case-insensitive lookup.
+        assert_eq!(ship_dimensions("Tanker"), ship_dimensions("tanker"));
+    }
+
+    #[test]
+    fn vessel_state_classification_helpers() {
+        assert!(VesselState::Active.is_active());
+        assert!(!VesselState::Docked.is_active());
+        assert!(VesselState::Evac.in_sar_chain());
+        assert!(VesselState::Rescued.is_terminal());
+        assert!(VesselState::Lost.is_terminal());
+        assert!(!VesselState::Evac.is_terminal());
     }
 }

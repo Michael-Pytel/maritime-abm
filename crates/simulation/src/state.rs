@@ -221,20 +221,45 @@ impl SimState {
 
     // ── run_tick (non-krabmaga path) ─────────────────────────────────────────
 
-    /// Executes one full macro tick (used outside of krabmaga).
-    #[allow(clippy::too_many_lines)]
+    /// Executes one full macro tick outside of krabmaga (tests / standalone).
+    ///
+    /// Navigates every vessel inline — the krabmaga path does this via the
+    /// `VesselAgent` schedule at ordering 200 — then runs the shared
+    /// post-navigation body in [`SimState::post_tick`], so the two execution
+    /// paths cannot drift out of sync.
     pub fn run_tick(&mut self, ais_records: &[ais::AisRecord]) {
         let tick = self.step;
         let config = self.config.clone();
         let land_mask = self.land_mask.clone();
-
-        // ── Step 1: advance weather field ─────────────────────────────────
-        self.weather.update(&mut self.rng);
-
         let ports = self.ports.clone();
+
+        // Agent step: navigate every vessel.
         for vessel in &mut self.vessels {
             vessel.step(tick, &config, &land_mask, &ports);
         }
+
+        // Shared post-navigation body (weather, comms, physics, housekeeping).
+        self.post_tick(ais_records);
+
+        // Standalone path advances its own clock; the krabmaga path advances
+        // `step` via `State::update`.
+        self.step += 1;
+    }
+
+    /// Shared post-navigation tick body: weather update, grounding, fatigue &
+    /// speed reduction, collision avoidance and consequence evaluation, KPI
+    /// accumulation, fleet top-up, clock advance, snapshot and logging.
+    ///
+    /// Invoked by both [`SimState::run_tick`] (standalone) and
+    /// `PostTickAgent::step` (krabmaga) so all per-tick physics lives in
+    /// exactly one place.
+    #[allow(clippy::too_many_lines)]
+    pub fn post_tick(&mut self, ais_records: &[ais::AisRecord]) {
+        let tick = self.step;
+        let config = self.config.clone();
+
+        // ── Step 1: advance weather field ─────────────────────────────────
+        self.weather.update(&mut self.rng);
 
         // Grounding: revert position only.
         for vessel in &mut self.vessels {
@@ -417,8 +442,6 @@ impl SimState {
                 let _ = writeln!(w, "{line}");
             }
         }
-
-        self.step += 1;
     }
 
     // ── Snapshot / log builders ───────────────────────────────────────────────
@@ -505,7 +528,9 @@ impl SimState {
                 "active_count": self.vessels.iter().filter(|v| v.state == VesselState::Active).count(),
                 "docked_count": self.vessels.iter().filter(|v| v.state == VesselState::Docked).count(),
                 "avoiding_count": self.vessels.iter().filter(|v| v.avoiding).count(),
-                "evac_count": 0,
+                "evac_count": self.vessels.iter().filter(|v| v.state == VesselState::Evac).count(),
+                "rescued_count": self.vessels.iter().filter(|v| v.state == VesselState::Rescued).count(),
+                "lost_count": self.vessels.iter().filter(|v| v.state == VesselState::Lost).count(),
                 "fatal_cumulative": 0,
                 "rescued_cumulative": 0,
                 "rescue_agent_count": 0,
@@ -697,217 +722,16 @@ fn push_capped(log: &mut VecDeque<VesselMsg>, msg: VesselMsg) {
 struct PostTickAgent;
 
 impl krabmaga::engine::agent::Agent for PostTickAgent {
-    #[allow(clippy::too_many_lines)]
     fn step(&mut self, state: &mut dyn State) {
         let wrapper = state
             .as_any_mut()
             .downcast_mut::<SimStateWrapper>()
             .unwrap();
-        let tick = wrapper.inner.step;
-        let config = wrapper.inner.config.clone();
-
-        // ── Step 1: advance weather field ─────────────────────────────────
-        wrapper.inner.weather.update(&mut wrapper.inner.rng);
-
-        // Grounding: revert position only.
-        for vessel in &mut wrapper.inner.vessels {
-            if vessel.state == VesselState::Docked {
-                continue;
-            }
-            if wrapper
-                .inner
-                .land_mask
-                .contains_point(vessel.position.0, vessel.position.1)
-            {
-                vessel.position = vessel.last_valid_position;
-            }
-        }
-
-        // Log ResumeRoute for vessels that completed an avoidance manoeuvre.
-        let resume_pairs: Vec<(u64, String, u64)> = wrapper
-            .inner
-            .vessels
-            .iter_mut()
-            .filter_map(|v| {
-                v.avoided_vessel_id
-                    .take()
-                    .map(|oid| (v.id, v.name.clone(), oid))
-            })
-            .collect();
-        for (id, name, other_id) in resume_pairs {
-            let other_name = wrapper
-                .inner
-                .vessels
-                .iter()
-                .find(|v| v.id == other_id)
-                .map_or_else(|| other_id.to_string(), |v| v.name.clone());
-            push_capped(
-                &mut wrapper.inner.comms_log,
-                VesselMsg {
-                    tick,
-                    from_id: id,
-                    from_name: name,
-                    to_id: other_id,
-                    to_name: other_name,
-                    kind: MsgKind::ResumeRoute,
-                },
-            );
-        }
-
-        // Hazard-gated speed reduction + per-vessel fatigue update.
-        {
-            let ww = config.world_width_nm;
-            let wh = config.world_height_nm;
-            let utc = wrapper.inner.utc_hour;
-            let method = config.method;
-            for vessel in &mut wrapper.inner.vessels {
-                let w = if vessel.state == VesselState::Docked {
-                    0.0
-                } else {
-                    wrapper
-                        .inner
-                        .weather
-                        .hazard_at(vessel.position.0, vessel.position.1, ww, wh)
-                };
-                vessel.tick_fatigue(w, utc, method);
-
-                if vessel.state == VesselState::Docked {
-                    continue;
-                }
-                if config.method != Method::BaselineA {
-                    let factor = (1.0 - 0.45 * w).max(0.30);
-                    if factor < 1.0 {
-                        let lv = vessel.last_valid_position;
-                        vessel.position.0 = lv.0 + (vessel.position.0 - lv.0) * factor;
-                        vessel.position.1 = lv.1 + (vessel.position.1 - lv.1) * factor;
-                    }
-                }
-            }
-        }
-
-        // Storm speed dampening.
-        if let Some(sp) = wrapper.inner.storm_pos {
-            let r2 = config.storm_radius_nm * config.storm_radius_nm;
-            let factor = config.storm_speed_factor;
-            for vessel in &mut wrapper.inner.vessels {
-                if vessel.state == VesselState::Docked {
-                    continue;
-                }
-                let dx = vessel.position.0 - sp.0;
-                let dy = vessel.position.1 - sp.1;
-                if dx * dx + dy * dy <= r2 {
-                    let lv = vessel.last_valid_position;
-                    vessel.position.0 = lv.0 + (vessel.position.0 - lv.0) * factor;
-                    vessel.position.1 = lv.1 + (vessel.position.1 - lv.1) * factor;
-                }
-            }
-        }
-
-        // CPA detection → avoidance waypoint injection + message log.
-        let storm_pos = wrapper.inner.storm_pos;
-        run_collision_avoidance(
-            tick,
-            &config,
-            &mut wrapper.inner.vessels,
-            &mut wrapper.inner.comms_log,
-            &mut wrapper.inner.kpi,
-            &mut wrapper.inner.rng,
-            storm_pos,
-        );
-
-        // Cooldown countdown.
-        for v in &mut wrapper.inner.vessels {
-            v.avoidance_cooldown = v.avoidance_cooldown.saturating_sub(1);
-        }
-
-        // Collision KPI only — no damage, no state change.
-        let n = wrapper.inner.vessels.len();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if wrapper.inner.vessels[i].state != VesselState::Active
-                    || wrapper.inner.vessels[j].state != VesselState::Active
-                {
-                    continue;
-                }
-                let dx = wrapper.inner.vessels[i].position.0 - wrapper.inner.vessels[j].position.0;
-                let dy = wrapper.inner.vessels[i].position.1 - wrapper.inner.vessels[j].position.1;
-                if (dx * dx + dy * dy).sqrt() <= config.collision_trigger_field {
-                    wrapper.inner.kpi.record_collision();
-                    let w = wrapper.inner.weather.hazard_at(
-                        f64::midpoint(
-                            wrapper.inner.vessels[i].position.0,
-                            wrapper.inner.vessels[j].position.0,
-                        ),
-                        f64::midpoint(
-                            wrapper.inner.vessels[i].position.1,
-                            wrapper.inner.vessels[j].position.1,
-                        ),
-                        config.world_width_nm,
-                        config.world_height_nm,
-                    );
-                    let crew_i = wrapper.inner.vessels[i].n_crew;
-                    let crew_j = wrapper.inner.vessels[j].n_crew;
-                    let max_fatigue = wrapper.inner.vessels[i]
-                        .fatigue
-                        .max(wrapper.inner.vessels[j].fatigue);
-                    wrapper.inner.kpi.record_collision_outcome(
-                        crew_i,
-                        crew_j,
-                        w,
-                        max_fatigue,
-                        config.method,
-                        &mut wrapper.inner.rng,
-                    );
-                    let mx = f64::midpoint(
-                        wrapper.inner.vessels[i].position.0,
-                        wrapper.inner.vessels[j].position.0,
-                    );
-                    let my = f64::midpoint(
-                        wrapper.inner.vessels[i].position.1,
-                        wrapper.inner.vessels[j].position.1,
-                    );
-                    wrapper.inner.collision_events.push_back((tick, mx, my));
-                    while wrapper.inner.collision_events.len() > COLLISION_EVENTS_CAPACITY {
-                        wrapper.inner.collision_events.pop_front();
-                    }
-                }
-            }
-        }
-
-        wrapper.inner.kpi.record_tick(&wrapper.inner.vessels);
-        wrapper.inner.kpi.record_p_prep_tick(
-            &wrapper.inner.vessels,
-            &wrapper.inner.weather,
-            config.world_width_nm,
-            config.world_height_nm,
-            config.method,
-        );
-
-        // Top-up fleet.
+        // Vessels have already navigated this tick via their own agents
+        // (ordering 200); run the shared post-navigation body. `step` is
+        // advanced by the krabmaga schedule through `State::update`.
         let ais = wrapper.ais_records.clone();
-        while wrapper.inner.vessels.len() < config.n_vessels as usize {
-            wrapper.inner.spawn_vessel(&ais, tick == 0);
-        }
-
-        wrapper.inner.utc_hour = (wrapper.inner.utc_hour + 0.25) % 24.0;
-        wrapper.inner.advance_storm();
-
-        let snap_n = config.snapshot_every_n_ticks;
-        if snap_n > 0 && tick.is_multiple_of(u64::from(snap_n)) {
-            if let Some(tx) = &wrapper.inner.snapshot_tx {
-                let snap = wrapper.inner.build_snapshot();
-                let _ = tx.send(snap);
-            }
-        }
-
-        let log_n = config.log_every_n_ticks;
-        if log_n > 0 && tick.is_multiple_of(u64::from(log_n)) && wrapper.inner.log_writer.is_some()
-        {
-            let line = wrapper.inner.build_log_line();
-            if let Some(w) = &mut wrapper.inner.log_writer {
-                let _ = writeln!(w, "{line}");
-            }
-        }
+        wrapper.inner.post_tick(&ais);
     }
 }
 
@@ -1125,6 +949,28 @@ mod tests {
                 wrapper.inner.vessels.len(),
                 wrapper.inner.config.n_vessels as usize
             );
+        }
+    }
+
+    #[test]
+    fn test_snapshot_surfaces_sar_states() {
+        // An Evac / Rescued / Lost vessel must be reflected in the telemetry
+        // counts, not silently hidden behind the Active/Docked-only view.
+        let cfg = test_cfg();
+        let mut wrapper = SimStateWrapper::new(cfg).unwrap();
+        wrapper.do_init();
+        assert!(!wrapper.inner.vessels.is_empty());
+
+        wrapper.inner.vessels[0].state = VesselState::Evac;
+        if wrapper.inner.vessels.len() > 1 {
+            wrapper.inner.vessels[1].state = VesselState::Lost;
+        }
+
+        let snap = wrapper.inner.build_snapshot();
+        let v: serde_json::Value = serde_json::from_str(&snap).unwrap();
+        assert_eq!(v["telemetry"]["evac_count"], 1);
+        if wrapper.inner.vessels.len() > 1 {
+            assert_eq!(v["telemetry"]["lost_count"], 1);
         }
     }
 
