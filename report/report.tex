@@ -20,7 +20,7 @@
 
 \address{$^1$ Warsaw University of Technology, Poland}
 
-\email{\{michal.pytel, pawel.pozorski\}.stud@pw.edu.pl}
+\email{\{michal.pytel2, pawel.pozorski\}.stud@pw.edu.pl}
 
 \keywords{maritime safety, multi-agent systems, agent-based modelling,
 collision avoidance, human factors, search and rescue}
@@ -386,7 +386,7 @@ where $V_{ij} = \sqrt{(V_i^{(1)})^2 + (V_j^{(2)})^2 - 2 V_i^{(1)} V_j^{(2)}\cos\
 \label{sec:sar}
 % ==================================================================
 
-When a collision founders a vessel (Eq.~\ref{eq:fatalities}, $S_i \to 0$) or a grounding forces an evacuation, the survivors enter a liferaft and the search-and-rescue (SAR) chain is triggered. A rescue agent is dispatched from the nearest shore base as either a helicopter (80\,kn) or a patrol vessel (25\,kn)~\cite{imosar2018}, after a mobilisation delay $\Delta t_{\text{mob}} = 2$ ticks. The subsystem layers two accredited components onto the transit. Figure~\ref{fig:fsm} shows the resulting vessel state machine.
+When a collision founders a vessel (Eq.~\ref{eq:fatalities}, $S_i < S^{\dagger}$) or a grounding forces an evacuation, the survivors enter a liferaft and the search-and-rescue (SAR) chain is triggered. A rescue agent is dispatched from the nearest shore base (a port) after a mobilisation delay $\Delta t_{\text{mob}} = 2$ ticks --- a helicopter ($80$\,kn) when the datum lies beyond $40$\,nm offshore, otherwise a patrol vessel ($25$\,kn)~\cite{imosar2018}. The asset then progresses through mobilise, transit, search, and embark phases; the subsystem layers two accredited components onto this transit. Figure~\ref{fig:fsm} shows the resulting vessel state machine.
 
 \begin{figure}[t]
 \centering
@@ -403,14 +403,14 @@ When a collision founders a vessel (Eq.~\ref{eq:fatalities}, $S_i \to 0$) or a g
   \draw[->] (A) to[bend right=22] node[below, font=\scriptsize]{port, dwell} (D);
   \draw[->] (D) to[bend right=22] node[above, font=\scriptsize]{depart} (A);
   \draw[->] (A) -- node[above, font=\scriptsize]{collision /} node[below, font=\scriptsize]{grounding} (E);
-  \draw[->] (E) -- node[above left=-2pt, font=\scriptsize]{detected} (R);
-  \draw[->] (E) -- node[below left=-2pt, font=\scriptsize]{$S_i{\to}0$} (L);
+  \draw[->] (E) -- node[above left=-2pt, font=\scriptsize]{located} (R);
+  \draw[->] (E) -- node[below left=-2pt, font=\scriptsize]{not in time} (L);
   \draw[->, dashed, gray] (R) to[out=0, in=70] (3.2,2.0) to[out=250, in=80] (A.north);
   \draw[->, dashed, gray] (L) to[out=0, in=-70] (3.2,-2.0) to[out=110, in=-80] (A.south);
   \node[gray, font=\scriptsize] at (4.9,2.0) {respawn};
 \end{tikzpicture}%
 }
-\caption{Vessel state machine. A vessel cycles \textsc{Active}\,$\leftrightarrow$\,\textsc{Docked} along its route; a foundering collision or grounding sends it to \textsc{Evac} (liferaft), from which the SAR chain yields \textsc{Rescued} (search detection, Eq.~\ref{eq:cdp}) or \textsc{Lost} ($S_i\to0$). Terminal vessels respawn to maintain fleet size.}
+\caption{Vessel state machine. A vessel cycles \textsc{Active}\,$\leftrightarrow$\,\textsc{Docked} along its route; a foundering collision or grounding sends it to \textsc{Evac} (liferaft), from which the SAR chain yields \textsc{Rescued} (search detection, Eq.~\ref{eq:cdp}) or \textsc{Lost} (the survivors are not located before the liferaft survival window elapses). Terminal vessels respawn to maintain fleet size.}
 \label{fig:fsm}
 \end{figure}
 
@@ -423,18 +423,19 @@ Because the exact distress position is uncertain and the liferaft drifts, detect
   \label{eq:cdp}
 \end{equation}
 %
-where $C = n\,w\,v_s\,\tau / A$ is the search coverage factor. The search area expands as the datum drifts: with an initial uncertainty radius $r_0$ and drift speed $u_d$, the area grows as $A(\tau) = \pi\,(r_0 + u_d\,\tau)^2$, so detection becomes harder the longer the response is delayed --- the quantitative link from response latency to survival. Liferaft drift advects the datum at the prevailing wind/current velocity each tick~\cite{karatas2018}.
+where $C = n\,w\,v_s\,\tau / A$ is the search coverage factor and $v_s$ the asset's (season-degraded, Section~\ref{sec:sar-ashrafi}) on-scene speed. The search area expands as the datum drifts: with an initial uncertainty radius $r_0$ and drift speed $u_d$, the area grows as $A(\tau) = \pi\,(r_0 + u_d\,\tau)^2$, so detection becomes harder the longer the response is delayed --- the quantitative link from response latency to survival. Each on-scene tick advects the liferaft datum along the prevailing current and draws a Bernoulli detection at the per-tick coverage $1 - e^{-\mathrm{d}C}$~\cite{karatas2018}.
 
 \subsection{Environmental Degradation (Ashrafi)}
+\label{sec:sar-ashrafi}
 
-Rescue-asset performance degrades with weather and season following the Arctic SAR framework of Ashrafi et al.~\cite{ashrafi2024}. Each cell/month draws weather parameters --- wind speed, significant wave height, air temperature, and a wind-chill index --- by Monte-Carlo sampling of historical data. The wind-chill index uses the standard form
+Rescue-asset performance degrades with season following the Arctic SAR framework of Ashrafi et al.~\cite{ashrafi2024}, in which air temperature, wind speed, significant wave height, and a wind-chill index combine into a per-month severity. The wind-chill index uses the standard form
 %
 \begin{equation}
   \text{wci} = 13.12 + 0.6215\,T - 11.37\,U^{0.16} + 0.3965\,T\,U^{0.16},
   \label{eq:wci}
 \end{equation}
 %
-with air temperature $T$ ($^\circ$C) and wind speed $U$ (km/h). Each parameter $x$ is discretised into a severity level $L_x$ by thresholds, and an aggregate severity $S\mkern-2mu L = f(L_{\text{wind}}, L_{\text{wave}}, L_{\text{wci}})$ is mapped --- through an expert-judgement function $g_i(\cdot)$ --- onto reductions in the rescue agent's travel speed and boarding speed, and onto hard no-go thresholds (e.g.\ icing or hover limits that suspend operations). The total rescue time is the sum over time-steps of transit, search (Eq.~\ref{eq:cdp}), boarding, and refuelling under the severity-degraded speeds. This replaces a linear weather penalty with month-conditioned severity bands and no-go states; in the source case study the longest rescue times occur December--February and the shortest May--August~\cite{ashrafi2024}. % TODO-VERIFY exact severity-level thresholds and g_i speed-reduction values, which are case-study/expert-elicited in Ashrafi et al. (2024) and not fixed constants.
+with air temperature $T$ ($^\circ$C) and wind speed $U$ (km/h). Rather than re-deriving the expert-assigned metocean thresholds, we adopt the framework's published month-group aggregation: each calendar month maps to one of four severity groups --- A (May--August, mildest), B (April, September), C (March, October, November), and D (January, February, December, harshest)~\cite{ashrafi2024}. The group multiplicatively reduces the asset's transit and search speed --- helicopter $1.00/0.95/0.77/0.60$ and patrol vessel $1.00/0.80/0.40/0.21$ for groups A--D, relative to the mildest group --- and sets the per-survivor boarding time ($2.1$--$10.7$\,min by helicopter, $6.1$--$31.2$\,min by vessel)~\cite{ashrafi2024}. On location, the asset embarks the $n_b$ survivors at this season-degraded rate before the case is logged \textsc{Rescued}. Transit, search (Eq.~\ref{eq:cdp}), and boarding therefore all lengthen in winter, so --- reproducing the source case study --- the longest rescue times occur December--February and the shortest May--August~\cite{ashrafi2024}.
 
 % ==================================================================
 \section{Experimental Design}
@@ -593,7 +594,7 @@ with $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0
 
 The model's defensible core is the explicit, quantified coupling in Eq.~\ref{eq:pcomms}: a single collision-warning exchange succeeds only when both the environment and both crews permit it. This makes the central hypotheses (H1--H3) mechanistic rather than correlational --- fatigue management ($m$ in Eq.~\ref{eq:m}) acts on outcomes solely by changing how often warnings are delivered and how prepared crews are, with no other lever distinguishing the conditions. Re-baselining the report on the real Baltic--North Sea engine, with hand-authored tracks and manual ports, keeps the experiment controlled while remaining geographically realistic.
 
-The accredited layers raise the model from an internal A/B comparison toward external validity. SIMCOL (Section~\ref{sec:consequence}) grounds casualty counts in collision mechanics rather than a tunable rate; IWRAP (Section~\ref{sec:iwrap}) places the resulting frequencies on a regulator-recognised scale; and the SAR subsystem (Section~\ref{sec:sar}) makes \texttt{survival\_ratio} and \texttt{avg\_tta\_hours} meaningful by modelling drift, random-search detection, and environmental degradation rather than instantaneous rescue. The SIMCOL external dynamics are pinned to the Pedersen--Zhang closed form, with the absorbed energy carried by the normal closing-velocity component and Lützen's added-mass coefficients (Eq.~\ref{eq:eabs}); the only modelling surrogate in the consequence chain is the survival factor $S_i$ (Eq.~\ref{eq:sfactor}), shaped to the SOLAS~II-1 $s$-factor because the engine does not resolve per-ship residual stability. The remaining \texttt{TODO-VERIFY} markers are confined to the SAR environmental-degradation thresholds (Section~\ref{sec:sar}) and the optional force-field repulsion exponent (Section~\ref{sec:forcefield}), to be pinned against their case-study sources before final reporting.
+The accredited layers raise the model from an internal A/B comparison toward external validity. SIMCOL (Section~\ref{sec:consequence}) grounds casualty counts in collision mechanics rather than a tunable rate; IWRAP (Section~\ref{sec:iwrap}) places the resulting frequencies on a regulator-recognised scale; and the SAR subsystem (Section~\ref{sec:sar}) makes \texttt{survival\_ratio} and \texttt{avg\_tta\_hours} meaningful by modelling drift, random-search detection, and environmental degradation rather than instantaneous rescue. The SIMCOL external dynamics are pinned to the Pedersen--Zhang closed form, with the absorbed energy carried by the normal closing-velocity component and Lützen's added-mass coefficients (Eq.~\ref{eq:eabs}); the only modelling surrogate in the consequence chain is the survival factor $S_i$ (Eq.~\ref{eq:sfactor}), shaped to the SOLAS~II-1 $s$-factor because the engine does not resolve per-ship residual stability. The SAR environmental degradation is likewise pinned to Ashrafi's published month-group constants (Section~\ref{sec:sar-ashrafi}); the single remaining \texttt{TODO-VERIFY} marker is the optional force-field repulsion exponent (Section~\ref{sec:forcefield}), to be pinned against its source before final reporting.
 
 Limitations follow from the controlled design. Hand-authored tracks trade empirical traffic realism for reproducibility; the deterministic lower-id give-way rule is a simplification of full COLREGs assignment; and the optional force-field track (Section~\ref{sec:forcefield}) is not the default. Calibration targets --- notably fewer than $0.5$ collisions per $1\,000$ ship-hours under Baseline~A in the Calm Passage scenario --- are grounded in AIS-derived near-miss encounter statistics~\cite{silveira2013,zhang2015}.
 
@@ -638,6 +639,9 @@ Table~\ref{tab:constants} lists the principal engine constants with default valu
         dwell & 8--48 tk & port stay \\
         helicopter / patrol & 80 / 25\,kn & rescue asset speeds \\
         $\Delta t_{\text{mob}}$ & 2 tk & rescue mobilisation delay \\
+        helo / patrol cutoff & 40\,nm & SAR asset-selection datum range \\
+        $w,\,r_0,\,u_d$ & 5\,nm, 2\,nm, 0.2\,nm/tk & MASSIM sweep / datum / drift \\
+        survival window & 96 tk & liferaft endurance (24\,h) \\
         $P_c$ (IWRAP) & $0.5\text{--}1.3{\times}10^{-4}$ & causation probability \\
         \bottomrule
     \end{tabularx}
