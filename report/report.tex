@@ -317,25 +317,39 @@ where $d_k$ is the distance to obstacle $k$, $\hat{\mathbf{n}}_k$ the unit vecto
 
 A \textbf{hard collision} is logged whenever two \textsc{Active} vessels close within $d_{\text{hit}} = 2\,r_{\text{coll}} = 0.30$\,nm. The consequence of a hard collision is evaluated with the DTU SIMCOL probabilistic damage and survivability model~\cite{lutzen2001}, which replaces an ad-hoc casualty rule with collision mechanics.
 
-\textbf{External dynamics.} The kinetic energy available for structural deformation in a collision is the loss of kinetic energy of the rigid-body system between first contact and the common-velocity state. For a striking ship of mass $M_a$ (including added mass) at speed $V_a$ impacting a struck ship at relative collision angle $\theta$, the absorbed energy $E_{\text{abs}}$ follows the closed-form external-dynamics solution of Pedersen and Zhang as summarised in~\cite{lutzen2001,pedersen1995}; in the right-angle limit it reduces to the classical form
+\textbf{External dynamics.} The energy released for hull deformation is the loss of kinetic energy of the rigid-body system between first contact and the common-velocity state, evaluated with the closed-form external-dynamics solution of Pedersen and Zhang~\cite{pedersenzhang1998} as used by Lützen~\cite{lutzen2001,pedersen1995}. Only the component of the closing velocity \emph{normal} to the struck vessel's side performs side-penetrating work, so for struck and striking displacements $M_a$, $M_b$ the absorbed energy is the reduced-mass energy on that normal component,
 %
 \begin{equation}
-  E_{\text{abs}} = \tfrac12\,\frac{M_a M_b}{M_a + M_b}\,V_a^2,
+  E_{\text{abs}} = \tfrac12\,\frac{M_a'\,M_b'}{M_a' + M_b'}\,V_n^2,
+  \qquad
+  V_n = \big|(\mathbf{v}_b - \mathbf{v}_a)\cdot\hat{\mathbf{n}}\big|,
   \label{eq:eabs}
 \end{equation}
 %
-where $M_b$ is the struck ship's mass plus added mass. % TODO-VERIFY oblique-angle reduction factor against Lutzen (2001) external-dynamics chapter.
+where $\hat{\mathbf{n}}$ is the unit normal to the struck side and $M_a' = M_a(1+m_{\text{sway}})$, $M_b' = M_b(1+m_{\text{surge}})$ carry hydrodynamic added mass with sway coefficient $m_{\text{sway}} = 0.85$ and surge coefficient $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. The normal-velocity projection $V_n$ supplies the collision-angle dependence directly --- a near-parallel graze releases almost no energy while a perpendicular impact releases the maximum --- so Eq.~\ref{eq:eabs} reduces to the classical right-angle reduced-mass form when $\hat{\mathbf{n}}$ aligns with the closing velocity, and no separate oblique-reduction factor is required.
 
-\textbf{Internal mechanics.} The absorbed energy is related to damage extent through Minorsky's absorbed-energy/resistance-volume correlation~\cite{minorsky1959}, $E_{\text{abs}} = a\,R_T + b$, where $R_T$ is the resistance (damaged) volume of deformed structural material. Lützen casts the resulting damage as \emph{non-dimensional} distributions: the damage length $\ell/L_{pp}$ (longitudinal extent normalised by struck-ship length) and the penetration $t/B$ (transverse extent normalised by breadth), each fitted as a probability density conditioned on the striking-ship displacement, speed, and collision angle~\cite{lutzen2001}.
+\textbf{Internal mechanics.} The absorbed energy is related to damage extent through Minorsky's absorbed-energy/resistance-volume correlation~\cite{minorsky1959}, $E_{\text{abs}}\,[\text{MJ}] = 47.2\,R_T + 32.7$, where $R_T$ is the resistance (destroyed) volume of deformed structural material. Lützen casts the resulting damage as \emph{non-dimensional} distributions --- the damage length $\ell/L_{pp}$ (longitudinal extent normalised by struck-ship length) and the penetration $t/B$ (transverse extent normalised by breadth), each fitted to striking-ship displacement, speed, and collision angle~\cite{lutzen2001}. Taking a representative damage length $\ell = 0.12\,L_{pp}$ (the median of that distribution) and an effective smeared side-steel thickness $\tau = 0.08$\,m, the breach penetration is $t = R_T/(\ell\,\tau)$, expressed non-dimensionally as $t/B$.
 
-\textbf{Survivability.} A sampled damage case $(\ell, t,$ location$)$ defines a set of flooded compartments, from which the model assigns a survivability factor $S_i \in [0,1]$ --- the conditional probability that the struck vessel survives that flooding case (a residual-stability $s$-factor in the probabilistic damage-stability sense). The per-collision expected fatalities are then
+\textbf{Survivability.} Because the engine does not carry per-ship residual-stability curves, the survivability factor $S_i \in [0,1]$ --- the conditional probability that the struck vessel survives the flooding case --- is modelled as a SOLAS~II-1-shaped surrogate~\cite{solas2020} on the relative penetration:
+%
+\begin{equation}
+  S_i =
+  \begin{cases}
+    1, & t/B \le r_0\\[2pt]
+    \left(\dfrac{r_1 - t/B}{r_1 - r_0}\right)^{0.25}, & r_0 < t/B < r_1\\[8pt]
+    0, & t/B \ge r_1,
+  \end{cases}
+  \label{eq:sfactor}
+\end{equation}
+%
+with knee $r_0 = 0.10$, full-loss penetration $r_1 = 0.30$, and the $0.25$ exponent of the SOLAS~II-1 $s$-factor. The per-collision expected fatalities are then
 %
 \begin{equation}
   \mathbb{E}[\text{fatalities}] = n_b\,\big(1 - S_i\big),
   \label{eq:fatalities}
 \end{equation}
 %
-with $n_b$ the struck-ship crew. A founder ($S_i \to 0$) triggers evacuation and the search-and-rescue chain (Section~\ref{sec:sar}); a survived case ($S_i = 1$) is logged as a near-miss damage event. % TODO-VERIFY exact s-factor formula: Lutzen (2001) reports damage-extent distributions; the survival mapping S_i follows SOLAS II-1 probabilistic damage stability and should be cited to the regulation if used verbatim.
+with $n_b$ the struck-ship crew, drawn as a per-crew Bernoulli trial; each colliding vessel is evaluated independently as the struck ship. A vessel whose survival factor falls below the founder threshold $S^{\dagger} = 0.50$ founders, triggering evacuation and the search-and-rescue chain (Section~\ref{sec:sar}); $S_i \to 1$ is logged as a near-miss damage event. % TODO-VERIFY surrogate knee r_0, full-loss r_1 and founder threshold S-dagger are calibration values shaped to the SOLAS II-1 s-factor, not constants extracted from a source.
 
 % ==================================================================
 \section{External Collision-Frequency Validation (IWRAP)}
@@ -579,7 +593,7 @@ with $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0
 
 The model's defensible core is the explicit, quantified coupling in Eq.~\ref{eq:pcomms}: a single collision-warning exchange succeeds only when both the environment and both crews permit it. This makes the central hypotheses (H1--H3) mechanistic rather than correlational --- fatigue management ($m$ in Eq.~\ref{eq:m}) acts on outcomes solely by changing how often warnings are delivered and how prepared crews are, with no other lever distinguishing the conditions. Re-baselining the report on the real Baltic--North Sea engine, with hand-authored tracks and manual ports, keeps the experiment controlled while remaining geographically realistic.
 
-The accredited layers raise the model from an internal A/B comparison toward external validity. SIMCOL (Section~\ref{sec:consequence}) grounds casualty counts in collision mechanics rather than a tunable rate; IWRAP (Section~\ref{sec:iwrap}) places the resulting frequencies on a regulator-recognised scale; and the SAR subsystem (Section~\ref{sec:sar}) makes \texttt{survival\_ratio} and \texttt{avg\_tta\_hours} meaningful by modelling drift, random-search detection, and environmental degradation rather than instantaneous rescue. Several external formulas remain marked \texttt{TODO-VERIFY} where the source treatment is a distribution or an expert-elicited mapping rather than a closed-form constant; these should be pinned to the cited regulation or case study before final reporting.
+The accredited layers raise the model from an internal A/B comparison toward external validity. SIMCOL (Section~\ref{sec:consequence}) grounds casualty counts in collision mechanics rather than a tunable rate; IWRAP (Section~\ref{sec:iwrap}) places the resulting frequencies on a regulator-recognised scale; and the SAR subsystem (Section~\ref{sec:sar}) makes \texttt{survival\_ratio} and \texttt{avg\_tta\_hours} meaningful by modelling drift, random-search detection, and environmental degradation rather than instantaneous rescue. The SIMCOL external dynamics are pinned to the Pedersen--Zhang closed form, with the absorbed energy carried by the normal closing-velocity component and Lützen's added-mass coefficients (Eq.~\ref{eq:eabs}); the only modelling surrogate in the consequence chain is the survival factor $S_i$ (Eq.~\ref{eq:sfactor}), shaped to the SOLAS~II-1 $s$-factor because the engine does not resolve per-ship residual stability. The remaining \texttt{TODO-VERIFY} markers are confined to the SAR environmental-degradation thresholds (Section~\ref{sec:sar}) and the optional force-field repulsion exponent (Section~\ref{sec:forcefield}), to be pinned against their case-study sources before final reporting.
 
 Limitations follow from the controlled design. Hand-authored tracks trade empirical traffic realism for reproducibility; the deterministic lower-id give-way rule is a simplification of full COLREGs assignment; and the optional force-field track (Section~\ref{sec:forcefield}) is not the default. Calibration targets --- notably fewer than $0.5$ collisions per $1\,000$ ship-hours under Baseline~A in the Calm Passage scenario --- are grounded in AIS-derived near-miss encounter statistics~\cite{silveira2013,zhang2015}.
 
@@ -612,6 +626,10 @@ Table~\ref{tab:constants} lists the principal engine constants with default valu
         $L_f,L_o$ & 3 / 5\,nm & give-way waypoint offsets \\
         cooldown & 3 tk & re-manoeuvre lockout \\
         $r_{\text{coll}}$ & 0.15\,nm & hit at $2r=0.30$\,nm \\
+        $(m_{\text{sway}},m_{\text{surge}})$ & $0.85, 0.05$ & SIMCOL added mass \\
+        Minorsky $a,b$ & $47.2, 32.7$ & energy--volume (MJ, m$^3$) \\
+        $\ell/L_{pp},\tau$ & $0.12$, 0.08\,m & damage length / side steel \\
+        $r_0,r_1,S^{\dagger}$ & $0.10,0.30,0.50$ & $S_i$ knee / loss / founder \\
         $(\beta_{\text{base}},\beta_W,\beta_c)$ & $0.0015,0.0040,0.0008$ & fatigue rates \\
         recovery & 0.025/tk & dock fatigue recovery \\
         $F^\ast,\kappa$ & 0.40, 0.65 & comms-degradation knee \\

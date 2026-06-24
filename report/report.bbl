@@ -91,6 +91,10 @@ M.~L\"{u}tzen, ``Ship collision damage,'' Ph.D. dissertation, Technical
   University of Denmark, Department of Mechanical Engineering, Kongens Lyngby,
   Denmark, 2001.
 
+\bibitem{pedersenzhang1998}
+P.~T. Pedersen and S.~Zhang, ``On impact mechanics in ship collisions,''
+  \emph{Marine Structures}, vol.~11, no.~10, pp. 429--449, 1998.
+
 \bibitem{pedersen1995}
 P.~T. Pedersen, ``Collision and grounding mechanics,'' \emph{Proceedings of the
   Danish Society of Naval Architecture and Marine Engineering ({WEMT})}, pp.
@@ -100,6 +104,12 @@ P.~T. Pedersen, ``Collision and grounding mechanics,'' \emph{Proceedings of the
 V.~U. Minorsky, ``An analysis of ship collisions with reference to protection
   of nuclear power plants,'' \emph{Journal of Ship Research}, vol.~3, no.~2,
   pp. 1--4, 1959.
+
+\bibitem{solas2020}
+{International Maritime Organization}, ``{SOLAS} chapter {II-1}: Construction
+  --- subdivision and stability (probabilistic damage stability),''
+  International Maritime Organization, London, UK, International Convention for
+  the Safety of Life at Sea, 2020.
 
 \bibitem{friishansen2008iwrap}
 P.~Friis-Hansen, ``Basic modelling principles for prediction of collision and
