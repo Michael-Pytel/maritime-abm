@@ -61,6 +61,10 @@ pub struct SimState {
     evac_since: std::collections::HashMap<u64, u64>,
     /// Rolling log of recent wreck (loss) locations `(tick, field_x, field_y)`.
     pub wrecks: VecDeque<(u64, f64, f64)>,
+    /// Vessel pairs `(lo_id, hi_id)` currently within the hard-collision radius.
+    /// A collision is counted once, on the tick a pair *enters* contact, rather
+    /// than every tick it remains overlapping (e.g. while funnelling to a port).
+    contacts: HashSet<(u64, u64)>,
 }
 
 impl SimState {
@@ -108,6 +112,7 @@ impl SimState {
             next_rescue_id: 1,
             evac_since: std::collections::HashMap::new(),
             wrecks: VecDeque::with_capacity(COLLISION_EVENTS_CAPACITY + 1),
+            contacts: HashSet::new(),
             rng,
             config,
         })
@@ -603,7 +608,15 @@ impl SimState {
         }
 
         // Hard-collision detection + SIMCOL consequence evaluation.
+        //
+        // A collision is counted once per *encounter*: only when a pair first
+        // enters the hard-collision radius (rising edge), not every tick it
+        // stays overlapping. Otherwise same-direction traffic funnelling to a
+        // shared port endpoint — which the give-way rule does not separate
+        // (overtaking has near-zero relative velocity) — would log a fresh
+        // collision and re-draw SIMCOL fatalities every tick.
         let n = self.vessels.len();
+        let mut contacts_now: HashSet<(u64, u64)> = HashSet::new();
         for i in 0..n {
             for j in (i + 1)..n {
                 if !self.vessels[i].state.is_active() || !self.vessels[j].state.is_active() {
@@ -612,6 +625,16 @@ impl SimState {
                 let dx = self.vessels[i].position.0 - self.vessels[j].position.0;
                 let dy = self.vessels[i].position.1 - self.vessels[j].position.1;
                 if (dx * dx + dy * dy).sqrt() > config.collision_trigger_field {
+                    continue;
+                }
+
+                let key = {
+                    let (a, b) = (self.vessels[i].id, self.vessels[j].id);
+                    if a < b { (a, b) } else { (b, a) }
+                };
+                contacts_now.insert(key);
+                // Already in contact last tick → ongoing overlap, not a new event.
+                if self.contacts.contains(&key) {
                     continue;
                 }
 
@@ -655,6 +678,8 @@ impl SimState {
                 }
             }
         }
+        // Carry the contact set to the next tick for rising-edge detection.
+        self.contacts = contacts_now;
 
         // Search-and-rescue: dispatch assets to foundered vessels, advance
         // in-flight rescues, and resolve Evac → Rescued / Lost.
@@ -1134,6 +1159,7 @@ impl SimStateWrapper {
             self.inner.next_rescue_id = 1;
             self.inner.evac_since.clear();
             self.inner.wrecks.clear();
+            self.inner.contacts.clear();
             self.inner.comms_log.clear();
             self.inner.collision_events.clear();
             self.inner.weather =
