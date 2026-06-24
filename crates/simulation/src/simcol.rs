@@ -191,6 +191,59 @@ pub fn evaluate(
     }
 }
 
+// ── Collision geometry classification ────────────────────────────────────────
+
+/// Encounter geometry of a collision, classified by the angle between the two
+/// vessels' headings (folded to `[0°, 180°]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum CollisionType {
+    /// Near-parallel headings (overtaking / sideswipe): the low-energy case.
+    SideToSide,
+    /// Roughly perpendicular headings (crossing): one ship strikes the other's
+    /// side — the classic T-bone.
+    FrontToSide,
+    /// Reciprocal headings: the two vessels meet bows-on.
+    HeadOn,
+}
+
+impl CollisionType {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            CollisionType::SideToSide => "side_to_side",
+            CollisionType::FrontToSide => "front_to_side",
+            CollisionType::HeadOn => "head_on",
+        }
+    }
+}
+
+/// The angle (degrees, `[0, 180]`) between two compass headings.
+#[must_use]
+pub fn heading_difference_deg(first_deg: f64, second_deg: f64) -> f64 {
+    let raw = (first_deg - second_deg).rem_euclid(360.0);
+    raw.min(360.0 - raw)
+}
+
+/// Classify a collision from the angle between the two vessels' headings.
+///
+/// Bands (conventional COLREGS-flavoured split on the folded heading
+/// difference `θ ∈ [0°, 180°]`):
+///   * `θ < 45°`        → [`CollisionType::SideToSide`] (overtaking / sideswipe)
+///   * `45° ≤ θ < 135°` → [`CollisionType::FrontToSide`] (crossing / T-bone)
+///   * `θ ≥ 135°`       → [`CollisionType::HeadOn`] (reciprocal courses)
+#[must_use]
+pub fn classify_collision(first_deg: f64, second_deg: f64) -> (CollisionType, f64) {
+    let theta = heading_difference_deg(first_deg, second_deg);
+    let kind = if theta < 45.0 {
+        CollisionType::SideToSide
+    } else if theta < 135.0 {
+        CollisionType::FrontToSide
+    } else {
+        CollisionType::HeadOn
+    };
+    (kind, theta)
+}
+
 /// SOLAS II-1-shaped survival factor: 1 below the knee, falling to 0 at the
 /// full-loss penetration, with a `survival_exponent`-shaped transition.
 #[must_use]
@@ -263,6 +316,21 @@ mod tests {
             fast.founders,
             "20 kn T-bone should founder the struck vessel"
         );
+    }
+
+    #[test]
+    fn collision_geometry_is_classified_by_heading_angle() {
+        // Same heading → overtaking / sideswipe.
+        assert_eq!(classify_collision(90.0, 90.0).0, CollisionType::SideToSide);
+        assert_eq!(classify_collision(0.0, 30.0).0, CollisionType::SideToSide);
+        // ~90° apart → crossing / T-bone.
+        assert_eq!(classify_collision(0.0, 90.0).0, CollisionType::FrontToSide);
+        assert_eq!(classify_collision(350.0, 80.0).0, CollisionType::FrontToSide);
+        // Reciprocal → head-on; angle folds across the 360° wrap.
+        assert_eq!(classify_collision(0.0, 180.0).0, CollisionType::HeadOn);
+        let (kind, theta) = classify_collision(10.0, 200.0);
+        assert_eq!(kind, CollisionType::HeadOn);
+        assert!((theta - 170.0).abs() < 1e-9, "folded angle, not 190°");
     }
 
     #[test]

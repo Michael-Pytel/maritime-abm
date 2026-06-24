@@ -86,6 +86,44 @@ pub struct RescueAgent {
     pub dispatch_tick: u64,
 }
 
+/// A single person in the water following a man-overboard (MOB) event.
+///
+/// Each person is an independent search target (MASSIM single-MOB model,
+/// Karatas et al. 2018): they drift on their own bearing and are detected by
+/// their own per-tick Koopman draw, so a search may recover some of an
+/// incident's people before others.
+#[derive(Debug, Clone)]
+pub struct MobPerson {
+    pub id: u64,
+    /// Collision incident this person belongs to (one searcher is dispatched
+    /// per incident cluster).
+    pub incident_id: u64,
+    /// Current position in field coordinates (nm).
+    pub position: (f64, f64),
+    /// Independent drift bearing (compass degrees) for this person.
+    pub drift_bearing_deg: f64,
+    /// Tick at which the person entered the water (for the survival window).
+    pub since_tick: u64,
+}
+
+/// A searcher dispatched to a man-overboard incident cluster. Unlike a
+/// liferaft [`RescueAgent`] it has no embarking phase — it recovers persons
+/// individually as its per-tick search detects them.
+#[derive(Debug, Clone)]
+pub struct MobSearchAgent {
+    pub id: u64,
+    pub kind: RescueKind,
+    /// Current position in field coordinates (nm).
+    pub position: (f64, f64),
+    /// Home shore base.
+    pub base: (f64, f64),
+    /// Incident cluster this searcher is tasked to.
+    pub incident_id: u64,
+    pub phase: RescuePhase,
+    pub mobilising_ticks_left: u32,
+    pub dispatch_tick: u64,
+}
+
 /// Tunable SAR parameters (overridable via `SimConfig`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct SarParams {
@@ -114,6 +152,15 @@ pub struct SarParams {
     pub drift_speed_nm_per_tick: f64,
     /// Prevailing drift bearing (compass degrees) the liferaft is advected along.
     pub drift_bearing_deg: f64,
+
+    // ── Man-overboard (person-in-water) search ───────────────────────────────
+    /// Ticks a person survives in the water before the case becomes a fatality.
+    /// Far shorter than the liferaft window — cold-water immersion (Karatas
+    /// et al. 2018; Ashrafi et al. 2024 cold-environment framing).
+    pub mob_survival_ticks: u32,
+    /// Radius (nm) over which an incident's casualties are initially scattered
+    /// around the collision point, giving each person a distinct datum.
+    pub mob_scatter_nm: f64,
 }
 
 impl Default for SarParams {
@@ -130,6 +177,8 @@ impl Default for SarParams {
             initial_uncertainty_nm: 2.0,
             drift_speed_nm_per_tick: 0.2, // ≈ 0.8 kn current
             drift_bearing_deg: 45.0,
+            mob_survival_ticks: 12, // ≈ 3 h cold-water immersion
+            mob_scatter_nm: 0.5,
         }
     }
 }

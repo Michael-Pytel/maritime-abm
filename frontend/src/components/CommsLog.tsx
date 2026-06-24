@@ -8,6 +8,7 @@ const KIND_META: Record<string, { label: string; color: string; icon: string }> 
   giving_way:         { label: "GIVING WAY",        color: "#f59e0b", icon: "↩" },
   maintaining_course: { label: "MAINTAINING COURSE",color: "#60a5fa", icon: "→" },
   resume_route:       { label: "ROUTE RESUMED",     color: "#4ade80", icon: "✓" },
+  keep_distance:      { label: "KEEP DISTANCE",     color: "#22d3ee", icon: "⚓" },
 };
 
 function kindMeta(type: string) {
@@ -25,6 +26,8 @@ function MsgRow({ msg }: { msg: VesselMsg }) {
       ? ` — CPA ${(msg.kind as { cpa_nm: number; tta_ticks: number }).cpa_nm.toFixed(2)} nm in ${
           (msg.kind as { cpa_nm: number; tta_ticks: number }).tta_ticks
         } ticks`
+      : type === "keep_distance"
+      ? ` — match ${(msg.kind as { speed_kn: number }).speed_kn.toFixed(1)} kn`
       : "";
 
   return (

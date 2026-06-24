@@ -34,9 +34,9 @@ pub struct SimState {
     /// Rolling log of the last `COMMS_LOG_CAPACITY` vessel messages —
     /// included in every WebSocket snapshot.
     pub comms_log: VecDeque<VesselMsg>,
-    /// Rolling log of the last `COLLISION_EVENTS_CAPACITY` collision locations —
-    /// each entry is `(tick, field_x, field_y)`.
-    pub collision_events: VecDeque<(u64, f64, f64)>,
+    /// Rolling log of the last `COLLISION_EVENTS_CAPACITY` collision events,
+    /// each carrying its location and encounter geometry.
+    pub collision_events: VecDeque<CollisionRecord>,
     /// Live 50×50 stochastic weather grid.
     pub weather: WeatherField,
     /// Current storm-centre in field coordinates `(x, y)`.
@@ -65,6 +65,13 @@ pub struct SimState {
     /// A collision is counted once, on the tick a pair *enters* contact, rather
     /// than every tick it remains overlapping (e.g. while funnelling to a port).
     contacts: HashSet<(u64, u64)>,
+    /// Persons in the water awaiting a man-overboard search (per-person datums).
+    pub mob_persons: Vec<crate::sar::MobPerson>,
+    /// Searchers dispatched to man-overboard incident clusters.
+    pub mob_agents: Vec<crate::sar::MobSearchAgent>,
+    next_mob_id: u64,
+    next_mob_incident_id: u64,
+    next_mob_agent_id: u64,
 }
 
 impl SimState {
@@ -113,6 +120,11 @@ impl SimState {
             evac_since: std::collections::HashMap::new(),
             wrecks: VecDeque::with_capacity(COLLISION_EVENTS_CAPACITY + 1),
             contacts: HashSet::new(),
+            mob_persons: Vec::new(),
+            mob_agents: Vec::new(),
+            next_mob_id: 1,
+            next_mob_incident_id: 1,
+            next_mob_agent_id: 1,
             rng,
             config,
         })
@@ -437,6 +449,178 @@ impl SimState {
         self.evac_since.retain(|id, _| alive_evac.contains(id));
     }
 
+    /// Spawn `count` persons-in-water from a man-overboard incident centred on
+    /// `point`, each scattered to a distinct datum with an independent drift
+    /// bearing so the search resolves them individually.
+    fn spawn_mob_incident(&mut self, count: u32, point: (f64, f64), tick: u64) {
+        let incident_id = self.next_mob_incident_id;
+        self.next_mob_incident_id = self.next_mob_incident_id.wrapping_add(1);
+        self.kpi.record_mob_overboard(count);
+        let scatter = self.config.sar.mob_scatter_nm.max(0.0);
+        for _ in 0..count {
+            let id = self.next_mob_id;
+            self.next_mob_id = self.next_mob_id.wrapping_add(1);
+            let (ox, oy) = if scatter > 0.0 {
+                (
+                    self.rng.gen_range(-scatter..=scatter),
+                    self.rng.gen_range(-scatter..=scatter),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+            let bearing = self.rng.gen_range(0.0..360.0);
+            self.mob_persons.push(crate::sar::MobPerson {
+                id,
+                incident_id,
+                position: (point.0 + ox, point.1 + oy),
+                drift_bearing_deg: bearing,
+                since_tick: tick,
+            });
+        }
+    }
+
+    /// Run one tick of the man-overboard (person-in-water) search.
+    ///
+    /// 1. Drift each person along their own bearing.
+    /// 2. Dispatch one searcher per un-serviced incident cluster (centroid).
+    /// 3. Advance searchers (mobilise → transit → search); while searching, each
+    ///    person draws an independent Koopman detection and is recovered alive.
+    /// 4. Time out persons past the cold-water survival window as fatalities.
+    #[allow(clippy::too_many_lines)]
+    fn run_mob_sar(&mut self, tick: u64) {
+        let sar = self.config.sar;
+        if self.mob_persons.is_empty() && self.mob_agents.is_empty() {
+            return;
+        }
+
+        // (1) Independent drift per person.
+        if sar.drift_speed_nm_per_tick > 0.0 {
+            for p in &mut self.mob_persons {
+                let psi = p.drift_bearing_deg.to_radians();
+                p.position.0 += psi.sin() * sar.drift_speed_nm_per_tick;
+                p.position.1 += psi.cos() * sar.drift_speed_nm_per_tick;
+            }
+        }
+
+        // Incident centroids (one searcher is tasked per cluster).
+        let centroid = |persons: &[crate::sar::MobPerson], incident: u64| -> Option<(f64, f64)> {
+            let mut sx = 0.0;
+            let mut sy = 0.0;
+            let mut n = 0u32;
+            for p in persons {
+                if p.incident_id == incident {
+                    sx += p.position.0;
+                    sy += p.position.1;
+                    n += 1;
+                }
+            }
+            (n > 0).then(|| (sx / f64::from(n), sy / f64::from(n)))
+        };
+
+        // (2) Dispatch to un-serviced incidents, in first-seen order.
+        let serviced: HashSet<u64> = self.mob_agents.iter().map(|a| a.incident_id).collect();
+        let mut seen: HashSet<u64> = HashSet::new();
+        let mut pending: Vec<u64> = Vec::new();
+        for p in &self.mob_persons {
+            if !serviced.contains(&p.incident_id) && seen.insert(p.incident_id) {
+                pending.push(p.incident_id);
+            }
+        }
+        for incident_id in pending {
+            let Some(datum) = centroid(&self.mob_persons, incident_id) else {
+                continue;
+            };
+            if let Some(base) = self.nearest_base(datum) {
+                let dist_nm = dist2(base, datum).sqrt();
+                let kind = crate::sar::select_asset(dist_nm, &sar);
+                let id = self.next_mob_agent_id;
+                self.next_mob_agent_id = self.next_mob_agent_id.wrapping_add(1);
+                self.mob_agents.push(crate::sar::MobSearchAgent {
+                    id,
+                    kind,
+                    position: base,
+                    base,
+                    incident_id,
+                    phase: crate::sar::RescuePhase::Mobilising,
+                    mobilising_ticks_left: sar.mobilisation_delay_ticks,
+                    dispatch_tick: tick,
+                });
+            }
+        }
+
+        // (3) Advance searchers. Ashrafi seasonal degradation scales speeds.
+        let group = crate::ashrafi::MonthGroup::from_month(self.config.sim_month);
+        let mut recovered: Vec<u64> = Vec::new(); // person ids recovered this tick
+        let mut retire: Vec<u64> = Vec::new(); // searcher ids to remove
+        for agent in &mut self.mob_agents {
+            let Some(datum) = centroid(&self.mob_persons, agent.incident_id) else {
+                retire.push(agent.id); // cluster cleared (all recovered / lost)
+                continue;
+            };
+            let speed_kn = agent.kind.speed_kn(&sar) * group.speed_multiplier(agent.kind);
+            match agent.phase {
+                crate::sar::RescuePhase::Mobilising => {
+                    agent.mobilising_ticks_left = agent.mobilising_ticks_left.saturating_sub(1);
+                    if agent.mobilising_ticks_left == 0 {
+                        agent.phase = crate::sar::RescuePhase::Transiting;
+                    }
+                }
+                crate::sar::RescuePhase::Transiting => {
+                    let step_nm = speed_kn * 0.25;
+                    let dx = datum.0 - agent.position.0;
+                    let dy = datum.1 - agent.position.1;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d <= sar.arrival_radius_nm.max(step_nm) {
+                        agent.position = datum;
+                        agent.phase = crate::sar::RescuePhase::Searching;
+                        self.kpi.record_rescue(tick - agent.dispatch_tick);
+                    } else {
+                        agent.position.0 += dx / d * step_nm;
+                        agent.position.1 += dy / d * step_nm;
+                    }
+                }
+                // Embarking is unused for MOB; treat it like Searching.
+                crate::sar::RescuePhase::Searching | crate::sar::RescuePhase::Embarking => {
+                    agent.position = datum;
+                    for p in &self.mob_persons {
+                        if p.incident_id != agent.incident_id {
+                            continue;
+                        }
+                        let elapsed = tick.saturating_sub(p.since_tick);
+                        let prob = crate::sar::detection_prob_tick(&sar, speed_kn, elapsed);
+                        if self.rng.gen::<f64>() < prob {
+                            recovered.push(p.id);
+                        }
+                    }
+                }
+            }
+        }
+        self.mob_agents.retain(|a| !retire.contains(&a.id));
+
+        // Apply recoveries (alive).
+        for id in recovered {
+            if let Some(pos) = self.mob_persons.iter().position(|p| p.id == id) {
+                self.mob_persons.remove(pos);
+                self.kpi.record_mob_recovered();
+            }
+        }
+
+        // (4) Time out persons past the survival window (the only fatality path).
+        let limit = u64::from(sar.mob_survival_ticks);
+        let mut drowned = 0u32;
+        self.mob_persons.retain(|p| {
+            if tick.saturating_sub(p.since_tick) > limit {
+                drowned += 1;
+                false
+            } else {
+                true
+            }
+        });
+        for _ in 0..drowned {
+            self.kpi.record_mob_lost();
+        }
+    }
+
     /// True if `pos` lies within `radius_nm` of any port.
     fn near_any_port(&self, pos: (f64, f64), radius_nm: f64) -> bool {
         let r2 = radius_nm * radius_nm;
@@ -742,41 +926,63 @@ impl SimState {
                     continue;
                 }
 
-                self.kpi.record_collision();
-
                 // Evaluate the consequence to each vessel as the struck ship,
                 // using its type-derived principal particulars (mass/length/beam).
                 let ship_i = collision_ship(&self.vessels[i]);
                 let ship_j = collision_ship(&self.vessels[j]);
+
+                // Classify the encounter geometry from the two headings.
+                let (kind, angle_deg) =
+                    simcol::classify_collision(ship_i.heading_deg, ship_j.heading_deg);
+                self.kpi.record_collision(kind);
+
                 let out_i = simcol::evaluate(ship_i, ship_j, &config.simcol);
                 let out_j = simcol::evaluate(ship_j, ship_i, &config.simcol);
 
                 let crew_i = self.vessels[i].n_crew;
                 let crew_j = self.vessels[j].n_crew;
-                self.kpi.record_struck_outcome(
+                let overboard_i = self.kpi.record_struck_outcome(
                     crew_i,
                     out_i.survival_factor,
                     out_i.founders,
                     &mut self.rng,
                 );
-                self.kpi.record_struck_outcome(
+                let overboard_j = self.kpi.record_struck_outcome(
                     crew_j,
                     out_j.survival_factor,
                     out_j.founders,
                     &mut self.rng,
                 );
 
-                // A foundering vessel enters the SAR chain (Evac).
+                let mx = f64::midpoint(self.vessels[i].position.0, self.vessels[j].position.0);
+                let my = f64::midpoint(self.vessels[i].position.1, self.vessels[j].position.1);
+
+                // Two parallel casualty paths. A foundering vessel evacuates its
+                // whole crew to a liferaft (the Evac chain). A struck vessel that
+                // stays afloat throws its casualties into the water — each becomes
+                // an individual person-in-water for the man-overboard search.
+                let mut overboard_here = 0u32;
                 if out_i.founders {
                     self.vessels[i].state = VesselState::Evac;
+                } else {
+                    overboard_here += overboard_i;
                 }
                 if out_j.founders {
                     self.vessels[j].state = VesselState::Evac;
+                } else {
+                    overboard_here += overboard_j;
+                }
+                if overboard_here > 0 {
+                    self.spawn_mob_incident(overboard_here, (mx, my), tick);
                 }
 
-                let mx = f64::midpoint(self.vessels[i].position.0, self.vessels[j].position.0);
-                let my = f64::midpoint(self.vessels[i].position.1, self.vessels[j].position.1);
-                self.collision_events.push_back((tick, mx, my));
+                self.collision_events.push_back(CollisionRecord {
+                    tick,
+                    x: mx,
+                    y: my,
+                    kind,
+                    angle_deg,
+                });
                 while self.collision_events.len() > COLLISION_EVENTS_CAPACITY {
                     self.collision_events.pop_front();
                 }
@@ -788,6 +994,10 @@ impl SimState {
         // Search-and-rescue: dispatch assets to foundered vessels, advance
         // in-flight rescues, and resolve Evac → Rescued / Lost.
         self.run_sar(tick);
+
+        // Man-overboard search: recover (or lose) the persons in the water
+        // thrown from struck vessels that stayed afloat.
+        self.run_mob_sar(tick);
 
         // Reap terminal vessels (Rescued / Lost); the fleet top-up below
         // respawns replacements to hold the fleet size.
@@ -870,13 +1080,19 @@ impl SimState {
         // Serialise the comms log as a plain Vec for JSON.
         let comms_log: Vec<&VesselMsg> = self.comms_log.iter().collect();
 
-        // Serialise collision events as [{tick, lat, lon}].
+        // Serialise collision events with their geometry classification.
         let collision_events: Vec<serde_json::Value> = self
             .collision_events
             .iter()
-            .map(|(t, fx, fy)| {
-                let (lat, lon) = ais::field_to_lat_lon(*fx, *fy);
-                json!({ "tick": t, "lat": lat, "lon": lon })
+            .map(|c| {
+                let (lat, lon) = ais::field_to_lat_lon(c.x, c.y);
+                json!({
+                    "tick": c.tick,
+                    "lat": lat,
+                    "lon": lon,
+                    "type": c.kind.label(),
+                    "angle_deg": c.angle_deg,
+                })
             })
             .collect();
 
@@ -923,6 +1139,33 @@ impl SimState {
             })
             .collect();
 
+        // Persons in the water (man-overboard search targets).
+        let mob_persons: Vec<Value> = self
+            .mob_persons
+            .iter()
+            .map(|p| {
+                let (lat, lon) = ais::field_to_lat_lon(p.position.0, p.position.1);
+                json!({ "id": p.id, "incident_id": p.incident_id, "lat": lat, "lon": lon })
+            })
+            .collect();
+
+        // Man-overboard searchers.
+        let mob_agents: Vec<Value> = self
+            .mob_agents
+            .iter()
+            .map(|a| {
+                let (lat, lon) = ais::field_to_lat_lon(a.position.0, a.position.1);
+                json!({
+                    "id": a.id,
+                    "kind": a.kind.label(),
+                    "lat": lat,
+                    "lon": lon,
+                    "phase": a.phase.label(),
+                    "incident_id": a.incident_id,
+                })
+            })
+            .collect();
+
         serde_json::to_string(&json!({
             "step": self.step,
             "vessels": vessels,
@@ -943,6 +1186,8 @@ impl SimState {
             "rescue_agents": rescue_agents,
             "shore_stations": shore_stations,
             "wrecks": wrecks,
+            "mob_persons": mob_persons,
+            "mob_agents": mob_agents,
             "weather_channels": {},
             "weather_meta": null,
             "telemetry": {
@@ -958,6 +1203,16 @@ impl SimState {
                 "rescued_cumulative": self.rescued_cumulative,
                 "rescue_agent_count": self.rescue_agents.len(),
                 "wreck_count": self.wrecks.len(),
+                // Collision-geometry breakdown.
+                "collisions_head_on": self.kpi.collisions_head_on,
+                "collisions_front_to_side": self.kpi.collisions_front_to_side,
+                "collisions_side_to_side": self.kpi.collisions_side_to_side,
+                // Man-overboard search.
+                "mob_in_water": self.mob_persons.len(),
+                "mob_agent_count": self.mob_agents.len(),
+                "mob_total": self.kpi.mob_total,
+                "mob_recovered_cumulative": self.kpi.mob_recovered,
+                "mob_lost_cumulative": self.kpi.mob_lost,
             },
         }))
         .unwrap_or_default()
@@ -977,6 +1232,17 @@ impl SimState {
     pub fn shore_stations_json(&self) -> Vec<serde_json::Value> {
         vec![]
     }
+}
+
+/// A recorded collision: when, where (field coordinates), and the encounter
+/// geometry (type + heading-difference angle in degrees).
+#[derive(Debug, Clone, Copy)]
+pub struct CollisionRecord {
+    pub tick: u64,
+    pub x: f64,
+    pub y: f64,
+    pub kind: simcol::CollisionType,
+    pub angle_deg: f64,
 }
 
 /// An active routed vessel as seen by the following step:
@@ -1283,6 +1549,11 @@ impl SimStateWrapper {
             self.inner.evac_since.clear();
             self.inner.wrecks.clear();
             self.inner.contacts.clear();
+            self.inner.mob_persons.clear();
+            self.inner.mob_agents.clear();
+            self.inner.next_mob_id = 1;
+            self.inner.next_mob_incident_id = 1;
+            self.inner.next_mob_agent_id = 1;
             self.inner.comms_log.clear();
             self.inner.collision_events.clear();
             self.inner.weather =
@@ -1343,6 +1614,11 @@ impl State for SimStateWrapper {
         self.inner.next_rescue_id = 1;
         self.inner.evac_since.clear();
         self.inner.wrecks.clear();
+        self.inner.mob_persons.clear();
+        self.inner.mob_agents.clear();
+        self.inner.next_mob_id = 1;
+        self.inner.next_mob_incident_id = 1;
+        self.inner.next_mob_agent_id = 1;
         self.inner.comms_log.clear();
         self.inner.collision_events.clear();
         self.inner.weather =
@@ -1530,11 +1806,14 @@ mod tests {
             state.kpi.collision_events >= 1,
             "a hard collision is recorded"
         );
-        assert!(
-            state.kpi.fatal_crew > 0,
-            "foundering crew suffer fatalities"
-        );
         assert!(state.kpi.evac_events >= 1, "a founder triggers evacuation");
+        // A foundering vessel evacuates its whole crew to a liferaft, so it does
+        // NOT throw anyone overboard — the two casualty paths stay separate.
+        assert_eq!(
+            state.mob_persons.len(),
+            0,
+            "a founder uses the liferaft chain, not the man-overboard search"
+        );
         // The foundered vessel enters the SAR chain and a rescue asset launches.
         let evac = state
             .vessels
@@ -1687,6 +1966,50 @@ mod tests {
             state.kpi.snapshot(0).avg_tta_hours > 0.0,
             "rescue TTA is positive"
         );
+    }
+
+    #[test]
+    fn test_mob_search_recovers_persons_in_water() {
+        // Persons in the water a short hop from a shore base are found by the
+        // dispatched searcher and recovered alive within the survival window.
+        let mut cfg = test_cfg();
+        cfg.sar.drift_speed_nm_per_tick = 0.0; // hold the datum still for the test
+        cfg.sar.mob_survival_ticks = 200; // generous window
+        let mut state = SimState::new(cfg).unwrap();
+        let base = state.ports[0].position;
+        state.spawn_mob_incident(3, (base.0 + 5.0, base.1), 0);
+        assert_eq!(state.mob_persons.len(), 3, "3 persons enter the water");
+
+        for t in 0..200 {
+            state.run_mob_sar(t);
+            if state.mob_persons.is_empty() {
+                break;
+            }
+        }
+        assert!(state.mob_persons.is_empty(), "the cluster is cleared");
+        assert_eq!(state.kpi.mob_recovered, 3, "all three are recovered alive");
+        assert_eq!(state.kpi.mob_lost, 0, "none are lost");
+        assert_eq!(state.kpi.fatal_crew, 0, "recovery yields no fatalities");
+    }
+
+    #[test]
+    fn test_mob_persons_drown_past_survival_window() {
+        // With a survival window of zero ticks, persons in the water are lost
+        // (the only path to a crew fatality).
+        let mut cfg = test_cfg();
+        cfg.sar.mob_survival_ticks = 0;
+        let mut state = SimState::new(cfg).unwrap();
+        let base = state.ports[0].position;
+        state.spawn_mob_incident(2, (base.0 + 5.0, base.1), 0);
+
+        // Tick 0 seeds them; by tick 1 their age exceeds the zero window.
+        state.run_mob_sar(0);
+        state.run_mob_sar(1);
+
+        assert!(state.mob_persons.is_empty(), "all persons time out");
+        assert_eq!(state.kpi.mob_lost, 2, "both are lost");
+        assert_eq!(state.kpi.fatal_crew, 2, "lost persons are fatalities");
+        assert_eq!(state.kpi.mob_recovered, 0, "none recovered");
     }
 
     #[test]

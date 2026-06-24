@@ -2,7 +2,7 @@ import { useState, useEffect, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { useSimSocket } from "./hooks/useSimSocket";
 import { usePlayback } from "./hooks/usePlayback";
-import type { KpiSnapshot, TelemetrySnapshot, CollisionEvent, Storm } from "./types";
+import type { KpiSnapshot, TelemetrySnapshot, CollisionEvent, Storm, RescueAgentSnapshot, WreckMarker, MobPersonSnapshot, MobAgentSnapshot } from "./types";
 import SimMap from "./components/SimMap";
 import KpiPanel from "./components/KpiPanel";
 import ControlPanel from "./components/ControlPanel";
@@ -66,6 +66,10 @@ export default function App() {
   const latestKpis = tick?.kpis;
   const commsLog: VesselMsg[] = tick?.comms_log ?? EMPTY;
   const collisionEvents: CollisionEvent[] = tick?.collision_events ?? EMPTY;
+  const rescueAgents: RescueAgentSnapshot[] = tick?.rescue_agents ?? EMPTY;
+  const wrecks: WreckMarker[] = tick?.wrecks ?? EMPTY;
+  const mobPersons: MobPersonSnapshot[] = tick?.mob_persons ?? EMPTY;
+  const mobAgents: MobAgentSnapshot[] = tick?.mob_agents ?? EMPTY;
   const storm: Storm | null = tick?.storm ?? null;
   const weatherGrid: number[] = tick?.weather_grid ?? EMPTY;
   const weatherGridSize: number = tick?.weather_grid_size ?? 0;
@@ -169,6 +173,8 @@ export default function App() {
               <SimMap
                 vessels={vessels} ports={ports}
                 collisionEvents={collisionEvents} currentStep={step}
+                rescueAgents={rescueAgents} wrecks={wrecks}
+                mobPersons={mobPersons} mobAgents={mobAgents}
                 storm={storm}
                 weatherGrid={weatherGrid} weatherGridSize={weatherGridSize}
                 latMin={bbox?.lat_min} latMax={bbox?.lat_max}
@@ -209,6 +215,10 @@ export default function App() {
                   ports={playback.currentTick?.ports ?? []}
                   collisionEvents={playback.currentTick?.collision_events ?? []}
                   currentStep={playback.currentTick?.step ?? 0}
+                  rescueAgents={playback.currentTick?.rescue_agents ?? []}
+                  wrecks={playback.currentTick?.wrecks ?? []}
+                  mobPersons={playback.currentTick?.mob_persons ?? []}
+                  mobAgents={playback.currentTick?.mob_agents ?? []}
                   storm={playback.currentTick?.storm ?? null}
                   weatherGrid={playback.currentTick?.weather_grid ?? []}
                   weatherGridSize={playback.currentTick?.weather_grid_size ?? 0}

@@ -72,6 +72,10 @@ const TelemetryPanel = memo(function TelemetryPanel({ kpiHistory, telemetryHisto
               stroke="#22c55e" fill="#22c55e" fillOpacity={0.15} strokeWidth={1.5} dot={false}
             />
             <Area
+              type="monotone" dataKey="lost_cumulative" name="Lost"
+              stroke="#64748b" fill="#64748b" fillOpacity={0.15} strokeWidth={1.5} dot={false}
+            />
+            <Area
               type="monotone" dataKey="fatal_cumulative" name="Fatal"
               stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} strokeWidth={1.5} dot={false}
             />
@@ -95,6 +99,10 @@ const TelemetryPanel = memo(function TelemetryPanel({ kpiHistory, telemetryHisto
             <Line
               type="monotone" dataKey="evac_count" name="Evac"
               stroke="#f59e0b" strokeWidth={1.5} dot={false}
+            />
+            <Line
+              type="monotone" dataKey="anchored_count" name="Anchored"
+              stroke="#22d3ee" strokeWidth={1.2} dot={false} strokeDasharray="4 3"
             />
           </LineChart>
         </ResponsiveContainer>
@@ -138,6 +146,56 @@ const TelemetryPanel = memo(function TelemetryPanel({ kpiHistory, telemetryHisto
               fill="#22c55e" fillOpacity={0.75} radius={[2, 2, 0, 0]}
             />
           </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 5. Collision geometry breakdown (cumulative) */}
+      <div style={CHART_STYLE}>
+        <ChartTitle>Collision Types (cumulative)</ChartTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={telemetryHistory} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <XAxis dataKey="step" tick={AXIS_STYLE} />
+            <YAxis tick={AXIS_STYLE} width={28} allowDecimals={false} />
+            <Tooltip {...TOOLTIP_STYLE} />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Line
+              type="monotone" dataKey="collisions_head_on" name="Head-on"
+              stroke="#ef4444" strokeWidth={1.5} dot={false}
+            />
+            <Line
+              type="monotone" dataKey="collisions_front_to_side" name="Front-to-side"
+              stroke="#f59e0b" strokeWidth={1.5} dot={false}
+            />
+            <Line
+              type="monotone" dataKey="collisions_side_to_side" name="Side-to-side"
+              stroke="#60a5fa" strokeWidth={1.5} dot={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 6. Man-overboard outcomes */}
+      <div style={CHART_STYLE}>
+        <ChartTitle>Man-Overboard Outcomes</ChartTitle>
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={telemetryHistory} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <XAxis dataKey="step" tick={AXIS_STYLE} />
+            <YAxis tick={AXIS_STYLE} width={28} allowDecimals={false} />
+            <Tooltip {...TOOLTIP_STYLE} />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Area
+              type="monotone" dataKey="mob_recovered_cumulative" name="Recovered"
+              stroke="#22c55e" fill="#22c55e" fillOpacity={0.15} strokeWidth={1.5} dot={false}
+            />
+            <Area
+              type="monotone" dataKey="mob_lost_cumulative" name="Lost"
+              stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} strokeWidth={1.5} dot={false}
+            />
+            <Area
+              type="monotone" dataKey="mob_in_water" name="In water"
+              stroke="#fb923c" fill="#fb923c" fillOpacity={0.1} strokeWidth={1.2} dot={false}
+            />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
     </div>

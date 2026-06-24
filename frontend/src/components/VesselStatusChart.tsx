@@ -4,9 +4,10 @@ import type { VesselSnapshot } from "../types";
 
 const STATE_CONFIG = [
   { key: "Active",   label: "Active",      color: "#60a5fa" },
+  { key: "Docked",   label: "Docked",      color: "#14b8a6" },
   { key: "Evac",     label: "Evacuating",  color: "#fbbf24" },
-  { key: "Sunk",     label: "Sunk",        color: "#f87171" },
   { key: "Rescued",  label: "Rescued",     color: "#34d399" },
+  { key: "Lost",     label: "Lost",        color: "#f87171" },
 ];
 
 interface Props {

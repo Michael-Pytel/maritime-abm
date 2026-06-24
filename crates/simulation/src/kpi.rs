@@ -28,14 +28,29 @@ pub struct KpiAccumulator {
     /// Number of hard collision events (both vessels within `collision_trigger_field`).
     pub collision_events: u64,
 
+    /// Collisions classified as head-on (reciprocal courses).
+    pub collisions_head_on: u64,
+    /// Collisions classified as crossing / T-bone (front-to-side).
+    pub collisions_front_to_side: u64,
+    /// Collisions classified as overtaking / sideswipe (side-to-side).
+    pub collisions_side_to_side: u64,
+
     /// Total vessel spawns (for lifetime accounting).
     pub total_spawns: u64,
 
     /// Number of evacuation activations triggered by collisions.
     pub evac_events: u64,
 
-    /// Total crew fatalities across all collisions.
+    /// Total crew fatalities. A fatality now occurs only when a person in the
+    /// water (man-overboard) is not recovered within the survival window.
     pub fatal_crew: u64,
+
+    /// Total persons who entered the water (man-overboard) across all collisions.
+    pub mob_total: u64,
+    /// Man-overboard persons successfully recovered by SAR.
+    pub mob_recovered: u64,
+    /// Man-overboard persons lost (drowned / not recovered in time).
+    pub mob_lost: u64,
 
     /// Total crew present on active vessels at the moment a collision occurred.
     /// Used to compute `survival_ratio`.
@@ -114,9 +129,15 @@ impl KpiAccumulator {
 
     // ── Event recording ──────────────────────────────────────────────────────
 
-    /// Record a raw collision event (vessels entered physical overlap).
-    pub fn record_collision(&mut self) {
+    /// Record a raw collision event (vessels entered physical overlap),
+    /// tallying it by encounter geometry.
+    pub fn record_collision(&mut self, kind: crate::simcol::CollisionType) {
         self.collision_events += 1;
+        match kind {
+            crate::simcol::CollisionType::HeadOn => self.collisions_head_on += 1,
+            crate::simcol::CollisionType::FrontToSide => self.collisions_front_to_side += 1,
+            crate::simcol::CollisionType::SideToSide => self.collisions_side_to_side += 1,
+        }
     }
 
     /// Record a new vessel spawned into the fleet.
@@ -153,6 +174,14 @@ impl KpiAccumulator {
     ///   `survival_factor`  — SIMCOL `S_i ∈ [0, 1]` for this struck vessel.
     ///   `founders`         — whether the struck vessel founders.
     ///   `rng`              — simulation RNG for stochastic draws.
+    /// Evaluate a struck vessel's crew outcome.
+    ///
+    /// Each crew member is independently thrown into the water with probability
+    /// `1 − S_i` (the SIMCOL survival factor). This no longer kills anyone
+    /// directly: the returned count is the number of persons who went
+    /// **man-overboard**, whose fate is decided later by the SAR search (recovered
+    /// → survives, not found in time → [`record_mob_lost`](Self::record_mob_lost)).
+    /// A foundering vessel additionally activates the liferaft evacuation chain.
     pub fn record_struck_outcome(
         &mut self,
         crew: u32,
@@ -162,19 +191,37 @@ impl KpiAccumulator {
     ) -> u32 {
         self.crew_exposed += u64::from(crew);
 
-        let p_fatal = (1.0 - survival_factor).clamp(0.0, 1.0);
-        let mut fatalities = 0u32;
+        let p_overboard = (1.0 - survival_factor).clamp(0.0, 1.0);
+        let mut overboard = 0u32;
         for _ in 0..crew {
-            if rng.gen::<f64>() < p_fatal {
-                fatalities += 1;
+            if rng.gen::<f64>() < p_overboard {
+                overboard += 1;
             }
         }
-        self.fatal_crew += u64::from(fatalities);
 
         if founders {
             self.evac_events += 1;
         }
-        fatalities
+        overboard
+    }
+
+    /// Record `count` persons actually entering the water (man-overboard).
+    /// Counted at spawn time, so it excludes the draws for vessels that founder
+    /// (whose crew evacuate to a liferaft instead).
+    pub fn record_mob_overboard(&mut self, count: u32) {
+        self.mob_total += u64::from(count);
+    }
+
+    /// Record a man-overboard person recovered alive by SAR.
+    pub fn record_mob_recovered(&mut self) {
+        self.mob_recovered += 1;
+    }
+
+    /// Record a man-overboard person lost (not recovered within the survival
+    /// window) — the only path to a crew fatality.
+    pub fn record_mob_lost(&mut self) {
+        self.mob_lost += 1;
+        self.fatal_crew += 1;
     }
 
     // ── Snapshot ─────────────────────────────────────────────────────────────
