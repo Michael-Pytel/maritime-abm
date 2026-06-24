@@ -87,8 +87,6 @@
 \newlabel{eq:iwrap}{{16}{4}{}{equation.16}{}}
 \newlabel{eq:nahead}{{17}{4}{}{equation.17}{}}
 \newlabel{eq:nacross}{{18}{4}{}{equation.18}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8} Search-and-Rescue Subsystem}{4}{section.8}\protected@file@percent }
-\newlabel{sec:sar}{{8}{4}{}{section.8}{}}
 \citation{karatas2018}
 \citation{koopman1980}
 \citation{karatas2018}
@@ -96,43 +94,41 @@
 \citation{ashrafi2024}
 \citation{ashrafi2024}
 \citation{ashrafi2024}
+\citation{cliff1993}
 \def\@LN@column{1}
 \@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Vessel state machine. A vessel cycles \textsc  {Active}\,$\leftrightarrow $\,\textsc  {Docked} along its route; a foundering collision or grounding sends it to \textsc  {Evac} (liferaft), from which the SAR chain yields \textsc  {Rescued} (search detection, Eq.~\ref {eq:cdp}) or \textsc  {Lost} (the survivors are not located before the liferaft survival window elapses). Terminal vessels respawn to maintain fleet size.}}{5}{figure.caption.3}\protected@file@percent }
 \newlabel{fig:fsm}{{3}{5}{Vessel state machine. A vessel cycles \textsc {Active}\,$\leftrightarrow $\,\textsc {Docked} along its route; a foundering collision or grounding sends it to \textsc {Evac} (liferaft), from which the SAR chain yields \textsc {Rescued} (search detection, Eq.~\ref {eq:cdp}) or \textsc {Lost} (the survivors are not located before the liferaft survival window elapses). Terminal vessels respawn to maintain fleet size}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8} Search-and-Rescue Subsystem}{5}{section.8}\protected@file@percent }
+\newlabel{sec:sar}{{8}{5}{}{section.8}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.1} Drift and Random-Search Detection (MASSIM)}{5}{subsection.8.1}\protected@file@percent }
 \newlabel{eq:cdp}{{19}{5}{}{equation.19}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.2} Environmental Degradation (Ashrafi)}{5}{subsection.8.2}\protected@file@percent }
 \newlabel{sec:sar-ashrafi}{{8.2}{5}{}{subsection.8.2}{}}
-\newlabel{eq:wci}{{20}{5}{}{equation.20}{}}
 \def\@LN@column{2}
+\newlabel{eq:wci}{{20}{5}{}{equation.20}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {9} Experimental Design}{5}{section.9}\protected@file@percent }
 \newlabel{sec:experiment}{{9}{5}{}{section.9}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.1} Methods Under Test}{5}{subsection.9.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.2} Scenarios}{5}{subsection.9.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Scenario summary. All scenarios use 30 seeds and 2880 ticks/run (30 days at 15\,min/tick).}}{5}{table.caption.4}\protected@file@percent }
-\newlabel{tab:scenarios}{{1}{5}{Scenario summary. All scenarios use 30 seeds and 2880 ticks/run (30 days at 15\,min/tick)}{table.caption.4}{}}
-\citation{cliff1993}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.3} Key Performance Indicators}{5}{subsection.9.3}\protected@file@percent }
+\newlabel{eq:pprep}{{21}{5}{}{equation.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.4} Statistical Analysis}{5}{subsection.9.4}\protected@file@percent }
 \citation{krabmaga2023}
-\def\@LN@column{1}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.3} Key Performance Indicators}{6}{subsection.9.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Scenario summary. All scenarios use 30 seeds and 2880 ticks/run (30 days at 15\,min/tick).}}{6}{table.caption.4}\protected@file@percent }
+\newlabel{tab:scenarios}{{1}{6}{Scenario summary. All scenarios use 30 seeds and 2880 ticks/run (30 days at 15\,min/tick)}{table.caption.4}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces KPI definitions and hypothesis links.}}{6}{table.caption.5}\protected@file@percent }
 \newlabel{tab:kpis}{{2}{6}{KPI definitions and hypothesis links}{table.caption.5}{}}
-\newlabel{eq:pprep}{{21}{6}{}{equation.21}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.4} Statistical Analysis}{6}{subsection.9.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10} Implementation}{6}{section.10}\protected@file@percent }
-\newlabel{sec:implementation}{{10}{6}{}{section.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {10.1} Engine and Execution}{6}{subsection.10.1}\protected@file@percent }
 \def\@LN@column{2}
 \@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces The four ordered phases of each $15$-minute macro tick. Data flows strictly left to right within a tick; weather precedes perception so a vessel acts on the field issued in the same tick, and physics/housekeeping closes the tick before the clock advances.}}{6}{figure.caption.6}\protected@file@percent }
 \newlabel{fig:tick}{{4}{6}{The four ordered phases of each $15$-minute macro tick. Data flows strictly left to right within a tick; weather precedes perception so a vessel acts on the field issued in the same tick, and physics/housekeeping closes the tick before the clock advances}{figure.caption.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10} Implementation}{6}{section.10}\protected@file@percent }
+\newlabel{sec:implementation}{{10}{6}{}{section.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.1} Engine and Execution}{6}{subsection.10.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {10.2} Simulation Loop}{6}{subsection.10.2}\protected@file@percent }
 \newlabel{sec:loop}{{10.2}{6}{}{subsection.10.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {10.3} Speed Reduction under Hazard}{6}{subsection.10.3}\protected@file@percent }
 \newlabel{sec:speed}{{10.3}{6}{}{subsection.10.3}{}}
 \newlabel{eq:fw}{{22}{6}{}{equation.22}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {10.4} Weather Process Parameters}{6}{subsection.10.4}\protected@file@percent }
-\newlabel{sec:weather-impl}{{10.4}{6}{}{subsection.10.4}{}}
-\newlabel{eq:ar1}{{23}{6}{}{equation.23}{}}
 \citation{silveira2013}
 \citation{zhang2015}
 \bibstyle{IEEEtran}
@@ -158,15 +154,18 @@
 \bibcite{karatas2018}{19}
 \bibcite{koopman1980}{20}
 \bibcite{ashrafi2024}{21}
-\bibcite{cliff1993}{22}
 \def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.4} Weather Process Parameters}{7}{subsection.10.4}\protected@file@percent }
+\newlabel{sec:weather-impl}{{10.4}{7}{}{subsection.10.4}{}}
+\newlabel{eq:ar1}{{23}{7}{}{equation.23}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {11} Discussion}{7}{section.11}\protected@file@percent }
 \newlabel{sec:discussion}{{11}{7}{}{section.11}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {12} References}{7}{section.12}\protected@file@percent }
 \def\@LN@column{2}
-\@writefile{toc}{\contentsline {section}{\numberline {A} Default Constants Reference}{7}{appendix.A}\protected@file@percent }
-\newlabel{apx:constants}{{A}{7}{}{appendix.A}{}}
+\bibcite{cliff1993}{22}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {A} Default Constants Reference}{8}{appendix.A}\protected@file@percent }
+\newlabel{apx:constants}{{A}{8}{}{appendix.A}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Selected engine default constants.}}{8}{table.caption.7}\protected@file@percent }
 \newlabel{tab:constants}{{3}{8}{Selected engine default constants}{table.caption.7}{}}
-\def\@LN@column{2}
 \gdef \@abspage@last{8}

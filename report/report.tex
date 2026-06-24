@@ -363,10 +363,10 @@ The internal KPIs (Section~\ref{sec:experiment}) measure relative differences be
   \label{eq:iwrap}
 \end{equation}
 %
-For two opposing flows of classes $i,j$ over a segment of length $L_W$ during time $t$, the head-on candidate count is
+For two opposing flows of classes $i,j$ over a leg of sailing distance $D$ and fairway width $W$ during time $t$, the head-on candidate count is
 %
 \begin{equation}
-  N_a^{\text{head}} = \frac{D\,t}{L_W}\sum_{i,j} Q_i^{(1)} Q_j^{(2)}\,
+  N_a^{\text{head}} = \frac{D\,t}{W}\sum_{i,j} Q_i^{(1)} Q_j^{(2)}\,
   \frac{(B_i^{(1)}+B_j^{(2)})\,(V_i^{(1)}+V_j^{(2)})}{V_i^{(1)}\,V_j^{(2)}},
   \label{eq:nahead}
 \end{equation}
@@ -379,7 +379,7 @@ with traffic flows $Q$, beams $B$, speeds $V$; the overtaking form replaces $(V_
   \label{eq:nacross}
 \end{equation}
 %
-where $V_{ij} = \sqrt{(V_i^{(1)})^2 + (V_j^{(2)})^2 - 2 V_i^{(1)} V_j^{(2)}\cos\Theta}$ is the relative speed and $D_{ij}$ the geometric collision diameter~\cite{friishansen2008iwrap,pedersen1995}. The causation probability is taken from the established range $P_c \approx 0.5\text{--}1.3\times10^{-4}$, with $P_c^{\text{head-on}} = 1.3\times10^{-4}$ and $P_c^{\text{crossing}} = 1.0\times10^{-4}$~\cite{friishansen2008iwrap,lusic2015}. Comparing $N_c$ between Baseline~A and the Proposed System provides an externally interpretable, regulator-aligned check on whether the fatigue-coupling mechanism produces frequency reductions of the order expected for a real fairway (acceptance ${\approx}{<}1$ collision/yr/fairway).
+where $V_{ij} = \sqrt{(V_i^{(1)})^2 + (V_j^{(2)})^2 - 2 V_i^{(1)} V_j^{(2)}\cos\Theta}$ is the relative speed and $D_{ij}$ the Pedersen collision diameter~\cite{friishansen2008iwrap,pedersen1995}. The causation probabilities are the IWRAP software defaults~\cite{friishansen2008iwrap,lusic2015}: $P_c^{\text{head-on}} = 0.50\times10^{-4}$, $P_c^{\text{overtaking}} = 1.10\times10^{-4}$, and $P_c^{\text{crossing}} = 1.30\times10^{-4}$. An offline analyzer builds the leg network from the hand-authored routes, derives per-leg flows from the fleet and traversal times, and sums the head-on, overtaking, and crossing contributions into a per-year $N_c$. For the present network this yields $N_c \approx 0.01$ collisions/yr, within the regulator acceptance of ${<}1$ collision/yr/fairway; comparing $N_c$ between Baseline~A and the Proposed System (whose weather-aware slow-down lowers traffic flow) provides an externally interpretable, regulator-aligned check that the fatigue-coupling mechanism produces frequency reductions of the expected order.
 
 % ==================================================================
 \section{Search-and-Rescue Subsystem}
