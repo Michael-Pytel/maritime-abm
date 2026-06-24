@@ -2,6 +2,7 @@ pub mod ais;
 pub mod comms;
 pub mod kpi;
 pub mod land;
+pub mod sar;
 pub mod scenario;
 pub mod simcol;
 pub mod state;

@@ -52,6 +52,15 @@ pub struct SimState {
     pub lost_cumulative: u64,
     /// Cumulative count of vessels whose survivors were rescued.
     pub rescued_cumulative: u64,
+    /// Active rescue assets dispatched to foundered vessels.
+    pub rescue_agents: Vec<crate::sar::RescueAgent>,
+    /// Id counter for rescue assets.
+    next_rescue_id: u64,
+    /// Tick at which each currently-foundered vessel entered `Evac`
+    /// (keyed by vessel id), used for liferaft survival timing.
+    evac_since: std::collections::HashMap<u64, u64>,
+    /// Rolling log of recent wreck (loss) locations `(tick, field_x, field_y)`.
+    pub wrecks: VecDeque<(u64, f64, f64)>,
 }
 
 impl SimState {
@@ -95,6 +104,10 @@ impl SimState {
             next_vessel_id: 1,
             lost_cumulative: 0,
             rescued_cumulative: 0,
+            rescue_agents: Vec::new(),
+            next_rescue_id: 1,
+            evac_since: std::collections::HashMap::new(),
+            wrecks: VecDeque::with_capacity(COLLISION_EVENTS_CAPACITY + 1),
             rng,
             config,
         })
@@ -224,6 +237,156 @@ impl SimState {
             pos.0 += dx / dist * step;
             pos.1 += dy / dist * step;
         }
+    }
+
+    /// Nearest shore base (port position, field coords) to a datum, if any.
+    fn nearest_base(&self, datum: (f64, f64)) -> Option<(f64, f64)> {
+        self.ports
+            .iter()
+            .map(|p| p.position)
+            .min_by(|a, b| {
+                let da = dist2(*a, datum);
+                let db = dist2(*b, datum);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+
+    /// Run one tick of the search-and-rescue subsystem.
+    ///
+    /// 1. Record the onset tick of any newly foundered (`Evac`) vessel.
+    /// 2. Dispatch a rescue asset (helicopter / patrol) from the nearest shore
+    ///    base to each foundered vessel not yet being serviced.
+    /// 3. Advance each asset: mobilise, then transit toward the datum; on
+    ///    arrival the vessel is `Rescued` (or `Lost` if the liferaft survival
+    ///    time has elapsed). Record the rescue Time-to-Arrival KPI.
+    /// 4. Time out any foundered vessel whose survival window has passed.
+    #[allow(clippy::too_many_lines)]
+    fn run_sar(&mut self, tick: u64) {
+        let sar = self.config.sar;
+
+        // (1) Onset bookkeeping for newly foundered vessels.
+        for v in &self.vessels {
+            if v.state == VesselState::Evac {
+                self.evac_since.entry(v.id).or_insert(tick);
+            }
+        }
+
+        // (2) Dispatch assets to un-serviced foundered vessels.
+        let serviced: HashSet<u64> = self
+            .rescue_agents
+            .iter()
+            .map(|r| r.target_vessel_id)
+            .collect();
+        let pending: Vec<(u64, (f64, f64))> = self
+            .vessels
+            .iter()
+            .filter(|v| v.state == VesselState::Evac && !serviced.contains(&v.id))
+            .map(|v| (v.id, v.position))
+            .collect();
+        for (vid, datum) in pending {
+            if let Some(base) = self.nearest_base(datum) {
+                let dist_nm = dist2(base, datum).sqrt();
+                let kind = crate::sar::select_asset(dist_nm, &sar);
+                let id = self.next_rescue_id;
+                self.next_rescue_id = self.next_rescue_id.wrapping_add(1);
+                self.rescue_agents.push(crate::sar::RescueAgent {
+                    id,
+                    kind,
+                    position: base,
+                    base,
+                    target_vessel_id: vid,
+                    phase: crate::sar::RescuePhase::Mobilising,
+                    mobilising_ticks_left: sar.mobilisation_delay_ticks,
+                    dispatch_tick: tick,
+                });
+            }
+            // With no shore base reachable the vessel waits and times out (4).
+        }
+
+        // (3) Advance assets. Collect arrivals and retirements without holding a
+        // mutable borrow on the vessel list.
+        let datums: std::collections::HashMap<u64, (f64, f64)> = self
+            .vessels
+            .iter()
+            .filter(|v| v.state == VesselState::Evac)
+            .map(|v| (v.id, v.position))
+            .collect();
+        let mut arrivals: Vec<(u64, u64)> = Vec::new(); // (vessel_id, tta_ticks)
+        let mut retire: Vec<u64> = Vec::new(); // rescue-agent ids to remove
+        for agent in &mut self.rescue_agents {
+            let Some(&datum) = datums.get(&agent.target_vessel_id) else {
+                retire.push(agent.id); // target no longer awaiting rescue
+                continue;
+            };
+            match agent.phase {
+                crate::sar::RescuePhase::Mobilising => {
+                    agent.mobilising_ticks_left = agent.mobilising_ticks_left.saturating_sub(1);
+                    if agent.mobilising_ticks_left == 0 {
+                        agent.phase = crate::sar::RescuePhase::Transiting;
+                    }
+                }
+                crate::sar::RescuePhase::Transiting => {
+                    let step_nm = agent.kind.speed_kn(&sar) * 0.25;
+                    let dx = datum.0 - agent.position.0;
+                    let dy = datum.1 - agent.position.1;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d <= sar.arrival_radius_nm.max(step_nm) {
+                        agent.position = datum;
+                        arrivals.push((agent.target_vessel_id, tick - agent.dispatch_tick));
+                        retire.push(agent.id);
+                    } else {
+                        agent.position.0 += dx / d * step_nm;
+                        agent.position.1 += dy / d * step_nm;
+                    }
+                }
+            }
+        }
+        self.rescue_agents.retain(|a| !retire.contains(&a.id));
+
+        // Resolve arrivals: rescued if within the liferaft survival window,
+        // otherwise the survivors are lost.
+        let survival_limit = u64::from(sar.liferaft_survival_ticks);
+        for (vid, tta_ticks) in arrivals {
+            let evac_age = tick.saturating_sub(*self.evac_since.get(&vid).unwrap_or(&tick));
+            if let Some(v) = self.vessels.iter_mut().find(|v| v.id == vid) {
+                if evac_age <= survival_limit {
+                    v.state = VesselState::Rescued;
+                    self.kpi.record_rescue(tta_ticks);
+                } else {
+                    v.state = VesselState::Lost;
+                    self.wrecks.push_back((tick, v.position.0, v.position.1));
+                }
+            }
+            self.evac_since.remove(&vid);
+        }
+
+        // (4) Time out foundered vessels whose survival window has elapsed.
+        let mut timed_out: Vec<u64> = Vec::new();
+        for v in &mut self.vessels {
+            if v.state == VesselState::Evac {
+                let age = tick.saturating_sub(*self.evac_since.get(&v.id).unwrap_or(&tick));
+                if age > survival_limit {
+                    v.state = VesselState::Lost;
+                    self.wrecks.push_back((tick, v.position.0, v.position.1));
+                    timed_out.push(v.id);
+                }
+            }
+        }
+        for vid in timed_out {
+            self.evac_since.remove(&vid);
+        }
+        while self.wrecks.len() > COLLISION_EVENTS_CAPACITY {
+            self.wrecks.pop_front();
+        }
+
+        // Drop onset entries for vessels no longer foundered (e.g. reaped).
+        let alive_evac: HashSet<u64> = self
+            .vessels
+            .iter()
+            .filter(|v| v.state == VesselState::Evac)
+            .map(|v| v.id)
+            .collect();
+        self.evac_since.retain(|id, _| alive_evac.contains(id));
     }
 
     /// Remove vessels in a terminal SAR state (`Rescued` / `Lost`), tallying the
@@ -452,14 +615,9 @@ impl SimState {
             }
         }
 
-        // SAR resolution. Phase 2 placeholder: with no rescue assets yet, a
-        // foundered vessel is lost with its survivors. Phase 3 replaces this
-        // with shore dispatch, transit and random-search detection.
-        for v in &mut self.vessels {
-            if v.state == VesselState::Evac {
-                v.state = VesselState::Lost;
-            }
-        }
+        // Search-and-rescue: dispatch assets to foundered vessels, advance
+        // in-flight rescues, and resolve Evac → Rescued / Lost.
+        self.run_sar(tick);
 
         // Reap terminal vessels (Rescued / Lost); the fleet top-up below
         // respawns replacements to hold the fleet size.
@@ -501,6 +659,7 @@ impl SimState {
     // ── Snapshot / log builders ───────────────────────────────────────────────
 
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn build_snapshot(&self) -> String {
         use serde_json::{json, Value};
 
@@ -556,6 +715,43 @@ impl SimState {
             json!({ "lat": lat, "lon": lon, "radius_nm": self.config.storm_radius_nm })
         });
 
+        // Serialise dispatched rescue assets.
+        let rescue_agents: Vec<Value> = self
+            .rescue_agents
+            .iter()
+            .map(|r| {
+                let (lat, lon) = ais::field_to_lat_lon(r.position.0, r.position.1);
+                json!({
+                    "id": r.id,
+                    "kind": r.kind.label(),
+                    "lat": lat,
+                    "lon": lon,
+                    "phase": r.phase.label(),
+                    "target_id": r.target_vessel_id,
+                })
+            })
+            .collect();
+
+        // Shore SAR bases — the ports double as dispatch origins.
+        let shore_stations: Vec<Value> = self
+            .ports
+            .iter()
+            .map(|p| {
+                let (lat, lon) = ais::field_to_lat_lon(p.position.0, p.position.1);
+                json!({ "id": p.id, "name": p.name, "lat": lat, "lon": lon })
+            })
+            .collect();
+
+        // Wreck (loss) markers.
+        let wrecks: Vec<Value> = self
+            .wrecks
+            .iter()
+            .map(|(t, fx, fy)| {
+                let (lat, lon) = ais::field_to_lat_lon(*fx, *fy);
+                json!({ "tick": t, "lat": lat, "lon": lon })
+            })
+            .collect();
+
         serde_json::to_string(&json!({
             "step": self.step,
             "vessels": vessels,
@@ -573,9 +769,9 @@ impl SimState {
             "weather_grid": self.weather.hazard,
             "weather_grid_size": crate::weather::GRID_CELLS,
             "storm_centers": [],
-            "rescue_agents": [],
-            "shore_stations": [],
-            "wrecks": [],
+            "rescue_agents": rescue_agents,
+            "shore_stations": shore_stations,
+            "wrecks": wrecks,
             "weather_channels": {},
             "weather_meta": null,
             "telemetry": {
@@ -588,8 +784,8 @@ impl SimState {
                 "fatal_cumulative": self.kpi.fatal_crew,
                 "lost_cumulative": self.lost_cumulative,
                 "rescued_cumulative": self.rescued_cumulative,
-                "rescue_agent_count": 0,
-                "wreck_count": 0,
+                "rescue_agent_count": self.rescue_agents.len(),
+                "wreck_count": self.wrecks.len(),
             },
         }))
         .unwrap_or_default()
@@ -609,6 +805,13 @@ impl SimState {
     pub fn shore_stations_json(&self) -> Vec<serde_json::Value> {
         vec![]
     }
+}
+
+/// Squared Euclidean distance between two field-coordinate points.
+fn dist2(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let dx = a.0 - b.0;
+    let dy = a.1 - b.1;
+    dx * dx + dy * dy
 }
 
 /// Build a SIMCOL ship descriptor from a vessel's kinematics and its
@@ -886,6 +1089,10 @@ impl SimStateWrapper {
             self.inner.next_vessel_id = 1;
             self.inner.lost_cumulative = 0;
             self.inner.rescued_cumulative = 0;
+            self.inner.rescue_agents.clear();
+            self.inner.next_rescue_id = 1;
+            self.inner.evac_since.clear();
+            self.inner.wrecks.clear();
             self.inner.comms_log.clear();
             self.inner.collision_events.clear();
             self.inner.weather =
@@ -942,6 +1149,10 @@ impl State for SimStateWrapper {
         self.inner.next_vessel_id = 1;
         self.inner.lost_cumulative = 0;
         self.inner.rescued_cumulative = 0;
+        self.inner.rescue_agents.clear();
+        self.inner.next_rescue_id = 1;
+        self.inner.evac_since.clear();
+        self.inner.wrecks.clear();
         self.inner.comms_log.clear();
         self.inner.collision_events.clear();
         self.inner.weather =
@@ -1125,16 +1336,72 @@ mod tests {
             state.kpi.collision_events >= 1,
             "a hard collision is recorded"
         );
+        assert!(state.kpi.fatal_crew > 0, "foundering crew suffer fatalities");
+        assert!(state.kpi.evac_events >= 1, "a founder triggers evacuation");
+        // The foundered vessel enters the SAR chain and a rescue asset launches.
+        let evac = state
+            .vessels
+            .iter()
+            .filter(|v| v.state == VesselState::Evac)
+            .count();
+        assert!(evac >= 1, "a foundered vessel is awaiting rescue");
         assert!(
-            state.lost_cumulative >= 1,
-            "a foundered vessel is tallied lost"
+            !state.rescue_agents.is_empty(),
+            "a rescue asset is dispatched to the datum"
         );
+    }
+
+    #[test]
+    fn test_sar_dispatch_resolves_to_rescue() {
+        // A foundered vessel a short hop from a shore base is recovered, the
+        // rescue TTA is recorded, and the vessel transitions Evac → Rescued.
+        let cfg = test_cfg();
+        let mut state = SimState::new(cfg).unwrap();
+        assert!(!state.ports.is_empty(), "test fixture needs ports");
+        let base = state.ports[0].position;
+        let datum = (base.0 + 5.0, base.1); // ~5 nm offshore → patrol vessel
+
+        state.vessels.push(VesselAgent {
+            id: 1,
+            name: "Foundered".into(),
+            vessel_type: "cargo".into(),
+            route: vec![],
+            route_index: 0,
+            route_direction: 1,
+            position: datum,
+            last_valid_position: datum,
+            heading_deg: 0.0,
+            speed_kn: 0.0,
+            state: VesselState::Evac,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            fatigue: 0.0,
+        });
+
+        // Advance the SAR subsystem until the case resolves.
+        for t in 0..50 {
+            state.run_sar(t);
+            if state.vessels[0].state != VesselState::Evac {
+                break;
+            }
+        }
+
+        assert_eq!(
+            state.vessels[0].state,
+            VesselState::Rescued,
+            "a nearby datum within the survival window is rescued"
+        );
+        assert_eq!(state.kpi.rescue_count, 1, "the rescue is counted");
         assert!(
-            state.kpi.fatal_crew > 0,
-            "foundering crew suffer fatalities"
+            state.kpi.snapshot(0).avg_tta_hours > 0.0,
+            "rescue TTA is positive"
         );
-        // Fleet is topped back up to the configured size after reaping.
-        assert_eq!(state.vessels.len(), state.config.n_vessels as usize);
     }
 
     #[test]

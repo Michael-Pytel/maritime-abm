@@ -39,6 +39,10 @@ pub struct SimConfig {
     #[serde(default)]
     pub simcol: crate::simcol::SimcolParams,
 
+    /// Search-and-rescue subsystem parameters.
+    #[serde(default)]
+    pub sar: crate::sar::SarParams,
+
     // --- port / voyage model ---
     pub port_dwell_min_ticks: u32,
     pub port_dwell_max_ticks: u32,
@@ -117,6 +121,7 @@ impl Default for SimConfig {
             n_ticks: 2880,
             collision_radius_nm: 0.15,
             simcol: crate::simcol::SimcolParams::default(),
+            sar: crate::sar::SarParams::default(),
             port_dwell_min_ticks: 8,
             port_dwell_max_ticks: 48,
             initial_dwell_spread_ticks: 16,

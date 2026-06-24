@@ -42,10 +42,17 @@ pub struct KpiAccumulator {
     pub crew_exposed: u64,
 
     /// Sum of TTA (ticks) from every issued collision warning.
+    /// (Internal lead-time metric, distinct from the rescue TTA KPI below.)
     pub tta_ticks_sum: f64,
 
-    /// Number of collision warnings issued (denominator for avg TTA).
+    /// Number of collision warnings issued (denominator for warning TTA).
     pub tta_count: u64,
+
+    /// Sum of rescue Time-to-Arrival (ticks) over completed dispatches.
+    pub rescue_tta_ticks_sum: f64,
+
+    /// Number of completed rescue dispatches (denominator for `avg_tta_hours`).
+    pub rescue_count: u64,
 
     /// Running sum of per-vessel `P_prep` values accumulated across all ticks.
     pub p_prep_sum: f64,
@@ -125,6 +132,14 @@ impl KpiAccumulator {
         self.tta_count += 1;
     }
 
+    /// Record a completed rescue dispatch with its Time-to-Arrival (ticks).
+    pub fn record_rescue(&mut self, tta_ticks: u64) {
+        #[allow(clippy::cast_precision_loss)]
+        let tta_f64 = tta_ticks as f64;
+        self.rescue_tta_ticks_sum += tta_f64;
+        self.rescue_count += 1;
+    }
+
     /// Record the casualty outcome for **one struck vessel** in a hard
     /// collision, using the SIMCOL survival factor `S_i`.
     ///
@@ -179,11 +194,11 @@ impl KpiAccumulator {
             1.0 - self.fatal_crew as f64 / self.crew_exposed as f64
         };
 
-        let avg_tta_hours = if self.tta_count == 0 {
+        // KPI 5: mean rescue Time-to-Arrival across dispatches (1 tick = 0.25 h).
+        let avg_tta_hours = if self.rescue_count == 0 {
             0.0
         } else {
-            // 1 tick = 0.25 hours
-            (self.tta_ticks_sum / self.tta_count as f64) * 0.25
+            (self.rescue_tta_ticks_sum / self.rescue_count as f64) * 0.25
         };
 
         let mean_p_prep = if self.p_prep_vessel_ticks == 0 {
