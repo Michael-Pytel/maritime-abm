@@ -3,6 +3,7 @@ use crate::comms::{self, MsgKind, VesselMsg};
 use crate::kpi::{KpiAccumulator, KpiSnapshot};
 use crate::land::LandMask;
 use crate::scenario::{Method, SimConfig};
+use crate::simcol;
 use crate::vessel::{VesselAgent, VesselState};
 use crate::weather::WeatherField;
 
@@ -47,6 +48,10 @@ pub struct SimState {
     pub stop_rx: Option<tokio::sync::watch::Receiver<bool>>,
     pub log_writer: Option<BufWriter<File>>,
     next_vessel_id: u64,
+    /// Cumulative count of vessels lost (foundered, no survivors recovered).
+    pub lost_cumulative: u64,
+    /// Cumulative count of vessels whose survivors were rescued.
+    pub rescued_cumulative: u64,
 }
 
 impl SimState {
@@ -88,6 +93,8 @@ impl SimState {
             stop_rx: None,
             log_writer: None,
             next_vessel_id: 1,
+            lost_cumulative: 0,
+            rescued_cumulative: 0,
             rng,
             config,
         })
@@ -217,6 +224,27 @@ impl SimState {
             pos.0 += dx / dist * step;
             pos.1 += dy / dist * step;
         }
+    }
+
+    /// Remove vessels in a terminal SAR state (`Rescued` / `Lost`), tallying the
+    /// cumulative counters. The fleet top-up in `post_tick` respawns
+    /// replacements to maintain the configured fleet size.
+    fn reap_terminal_vessels(&mut self) {
+        let mut lost = 0u64;
+        let mut rescued = 0u64;
+        self.vessels.retain(|v| match v.state {
+            VesselState::Lost => {
+                lost += 1;
+                false
+            }
+            VesselState::Rescued => {
+                rescued += 1;
+                false
+            }
+            _ => true,
+        });
+        self.lost_cumulative += lost;
+        self.rescued_cumulative += rescued;
     }
 
     // ── run_tick (non-krabmaga path) ─────────────────────────────────────────
@@ -370,46 +398,72 @@ impl SimState {
             v.avoidance_cooldown = v.avoidance_cooldown.saturating_sub(1);
         }
 
-        // Collision KPI.
+        // Hard-collision detection + SIMCOL consequence evaluation.
         let n = self.vessels.len();
         for i in 0..n {
             for j in (i + 1)..n {
-                if self.vessels[i].state != VesselState::Active
-                    || self.vessels[j].state != VesselState::Active
-                {
+                if !self.vessels[i].state.is_active() || !self.vessels[j].state.is_active() {
                     continue;
                 }
                 let dx = self.vessels[i].position.0 - self.vessels[j].position.0;
                 let dy = self.vessels[i].position.1 - self.vessels[j].position.1;
-                if (dx * dx + dy * dy).sqrt() <= config.collision_trigger_field {
-                    self.kpi.record_collision();
-                    // Evaluate evac + fatality outcomes for this collision.
-                    let w = self.weather.hazard_at(
-                        f64::midpoint(self.vessels[i].position.0, self.vessels[j].position.0),
-                        f64::midpoint(self.vessels[i].position.1, self.vessels[j].position.1),
-                        config.world_width_nm,
-                        config.world_height_nm,
-                    );
-                    let crew_i = self.vessels[i].n_crew;
-                    let crew_j = self.vessels[j].n_crew;
-                    let max_fatigue = self.vessels[i].fatigue.max(self.vessels[j].fatigue);
-                    self.kpi.record_collision_outcome(
-                        crew_i,
-                        crew_j,
-                        w,
-                        max_fatigue,
-                        config.method,
-                        &mut self.rng,
-                    );
-                    let mx = f64::midpoint(self.vessels[i].position.0, self.vessels[j].position.0);
-                    let my = f64::midpoint(self.vessels[i].position.1, self.vessels[j].position.1);
-                    self.collision_events.push_back((tick, mx, my));
-                    while self.collision_events.len() > COLLISION_EVENTS_CAPACITY {
-                        self.collision_events.pop_front();
-                    }
+                if (dx * dx + dy * dy).sqrt() > config.collision_trigger_field {
+                    continue;
+                }
+
+                self.kpi.record_collision();
+
+                // Evaluate the consequence to each vessel as the struck ship,
+                // using its type-derived principal particulars (mass/length/beam).
+                let ship_i = collision_ship(&self.vessels[i]);
+                let ship_j = collision_ship(&self.vessels[j]);
+                let out_i = simcol::evaluate(ship_i, ship_j, &config.simcol);
+                let out_j = simcol::evaluate(ship_j, ship_i, &config.simcol);
+
+                let crew_i = self.vessels[i].n_crew;
+                let crew_j = self.vessels[j].n_crew;
+                self.kpi.record_struck_outcome(
+                    crew_i,
+                    out_i.survival_factor,
+                    out_i.founders,
+                    &mut self.rng,
+                );
+                self.kpi.record_struck_outcome(
+                    crew_j,
+                    out_j.survival_factor,
+                    out_j.founders,
+                    &mut self.rng,
+                );
+
+                // A foundering vessel enters the SAR chain (Evac).
+                if out_i.founders {
+                    self.vessels[i].state = VesselState::Evac;
+                }
+                if out_j.founders {
+                    self.vessels[j].state = VesselState::Evac;
+                }
+
+                let mx = f64::midpoint(self.vessels[i].position.0, self.vessels[j].position.0);
+                let my = f64::midpoint(self.vessels[i].position.1, self.vessels[j].position.1);
+                self.collision_events.push_back((tick, mx, my));
+                while self.collision_events.len() > COLLISION_EVENTS_CAPACITY {
+                    self.collision_events.pop_front();
                 }
             }
         }
+
+        // SAR resolution. Phase 2 placeholder: with no rescue assets yet, a
+        // foundered vessel is lost with its survivors. Phase 3 replaces this
+        // with shore dispatch, transit and random-search detection.
+        for v in &mut self.vessels {
+            if v.state == VesselState::Evac {
+                v.state = VesselState::Lost;
+            }
+        }
+
+        // Reap terminal vessels (Rescued / Lost); the fleet top-up below
+        // respawns replacements to hold the fleet size.
+        self.reap_terminal_vessels();
 
         self.kpi.record_tick(&self.vessels);
         self.kpi.record_p_prep_tick(
@@ -531,8 +585,9 @@ impl SimState {
                 "evac_count": self.vessels.iter().filter(|v| v.state == VesselState::Evac).count(),
                 "rescued_count": self.vessels.iter().filter(|v| v.state == VesselState::Rescued).count(),
                 "lost_count": self.vessels.iter().filter(|v| v.state == VesselState::Lost).count(),
-                "fatal_cumulative": 0,
-                "rescued_cumulative": 0,
+                "fatal_cumulative": self.kpi.fatal_crew,
+                "lost_cumulative": self.lost_cumulative,
+                "rescued_cumulative": self.rescued_cumulative,
                 "rescue_agent_count": 0,
                 "wreck_count": 0,
             },
@@ -553,6 +608,19 @@ impl SimState {
     #[must_use]
     pub fn shore_stations_json(&self) -> Vec<serde_json::Value> {
         vec![]
+    }
+}
+
+/// Build a SIMCOL ship descriptor from a vessel's kinematics and its
+/// type-derived principal particulars (mass / length / beam).
+fn collision_ship(v: &VesselAgent) -> simcol::CollisionShip {
+    let d = crate::vessel::ship_dimensions(&v.vessel_type);
+    simcol::CollisionShip {
+        heading_deg: v.heading_deg,
+        speed_kn: v.speed_kn,
+        mass_tonnes: d.mass_tonnes,
+        beam_m: d.beam_m,
+        length_m: d.length_m,
     }
 }
 
@@ -816,6 +884,8 @@ impl SimStateWrapper {
             self.inner.step = 0;
             self.inner.utc_hour = 6.0;
             self.inner.next_vessel_id = 1;
+            self.inner.lost_cumulative = 0;
+            self.inner.rescued_cumulative = 0;
             self.inner.comms_log.clear();
             self.inner.collision_events.clear();
             self.inner.weather =
@@ -870,6 +940,8 @@ impl State for SimStateWrapper {
         self.inner.utc_hour = 6.0;
         self.inner.rng = SmallRng::seed_from_u64(self.inner.config.seed);
         self.inner.next_vessel_id = 1;
+        self.inner.lost_cumulative = 0;
+        self.inner.rescued_cumulative = 0;
         self.inner.comms_log.clear();
         self.inner.collision_events.clear();
         self.inner.weather =
@@ -972,6 +1044,97 @@ mod tests {
         if wrapper.inner.vessels.len() > 1 {
             assert_eq!(v["telemetry"]["lost_count"], 1);
         }
+    }
+
+    #[test]
+    fn test_terminal_vessels_are_reaped_and_counted() {
+        let cfg = test_cfg();
+        let mut state = SimState::new(cfg).unwrap();
+        let mk = |id: u64, st: VesselState| VesselAgent {
+            id,
+            name: format!("V{id}"),
+            vessel_type: "cargo".into(),
+            route: vec![],
+            route_index: 0,
+            route_direction: 1,
+            position: (100.0, 100.0),
+            last_valid_position: (100.0, 100.0),
+            heading_deg: 0.0,
+            speed_kn: 12.0,
+            state: st,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            fatigue: 0.0,
+        };
+        state.vessels.push(mk(1, VesselState::Lost));
+        state.vessels.push(mk(2, VesselState::Rescued));
+        state.vessels.push(mk(3, VesselState::Active));
+
+        state.reap_terminal_vessels();
+
+        assert_eq!(state.vessels.len(), 1, "only the Active vessel survives");
+        assert_eq!(state.vessels[0].id, 3);
+        assert_eq!(state.lost_cumulative, 1);
+        assert_eq!(state.rescued_cumulative, 1);
+    }
+
+    #[test]
+    fn test_simcol_founder_produces_fatalities_and_loss() {
+        // Two heavy vessels overlap with perpendicular headings (a T-bone) and
+        // empty routes, so they do not navigate away before the collision sweep.
+        // SIMCOL should founder both, kill crew, and the reaper should respawn
+        // the fleet while tallying the losses.
+        let mut cfg = test_cfg();
+        cfg.n_vessels = 2;
+        let mut state = SimState::new(cfg).unwrap();
+        let mk = |id: u64, hdg: f64| VesselAgent {
+            id,
+            name: format!("V{id}"),
+            vessel_type: "cargo".into(),
+            route: vec![], // empty → navigate() is a no-op, vessels stay overlapped
+            route_index: 0,
+            route_direction: 1,
+            position: (300.0, 300.0),
+            last_valid_position: (300.0, 300.0),
+            heading_deg: hdg,
+            speed_kn: 20.0,
+            state: VesselState::Active,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            fatigue: 0.0,
+        };
+        state.vessels.push(mk(1, 90.0)); // heading east
+        state.vessels.push(mk(2, 180.0)); // heading south → strikes V1's side
+
+        let records = crate::ais::load_ais(&state.config.ais_path).unwrap();
+        state.run_tick(&records);
+
+        assert!(
+            state.kpi.collision_events >= 1,
+            "a hard collision is recorded"
+        );
+        assert!(
+            state.lost_cumulative >= 1,
+            "a foundered vessel is tallied lost"
+        );
+        assert!(
+            state.kpi.fatal_crew > 0,
+            "foundering crew suffer fatalities"
+        );
+        // Fleet is topped back up to the configured size after reaping.
+        assert_eq!(state.vessels.len(), state.config.n_vessels as usize);
     }
 
     #[test]

@@ -6,14 +6,6 @@ use serde::{Deserialize, Serialize};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Base probability that a collision (hard contact) triggers an evacuation.
-/// Scales up with local weather hazard W.
-const BASE_EVAC_PROB: f64 = 0.30;
-
-/// Base probability of fatality **per crew member** in a collision event.
-/// Scales up with W and is halved when both vessels were aware (not `BaselineA`).
-const BASE_FATAL_PROB_PER_CREW: f64 = 0.04;
-
 /// Awareness factor used in `P_prep` computation.
 ///   `BaselineA` → 2.0  (weather-unaware crew; hazard hits twice as hard)
 ///   `BaselineB` → 1.3  (partially aware; limited benefit)
@@ -133,59 +125,41 @@ impl KpiAccumulator {
         self.tta_count += 1;
     }
 
-    /// Evaluate and record evacuation activations + crew fatalities for a
-    /// hard collision between two vessels.
+    /// Record the casualty outcome for **one struck vessel** in a hard
+    /// collision, using the SIMCOL survival factor `S_i`.
+    ///
+    /// Expected fatalities are `crew · (1 − S_i)`, drawn per crew member as a
+    /// Bernoulli trial so the running total is unbiased. A foundering vessel
+    /// (`founders`) registers an evacuation activation and enters the SAR chain
+    /// (handled by the caller). Returns the number of fatalities drawn.
     ///
     /// Arguments:
-    ///   `crew_i`, `crew_j`  — crew counts on the two colliding vessels.
-    ///   `w`                 — weather hazard W ∈ [0, 1] at the collision site.
-    ///   `max_fatigue`       — worst crew fatigue of the two vessels ∈ [0, 1].
-    ///   `method`            — simulation method (affects fatal prob).
-    ///   `rng`               — simulation RNG for stochastic draws.
-    pub fn record_collision_outcome(
+    ///   `crew`             — crew count on the struck vessel.
+    ///   `survival_factor`  — SIMCOL `S_i ∈ [0, 1]` for this struck vessel.
+    ///   `founders`         — whether the struck vessel founders.
+    ///   `rng`              — simulation RNG for stochastic draws.
+    pub fn record_struck_outcome(
         &mut self,
-        crew_i: u32,
-        crew_j: u32,
-        w: f64,
-        max_fatigue: f64,
-        method: Method,
+        crew: u32,
+        survival_factor: f64,
+        founders: bool,
         rng: &mut impl Rng,
-    ) {
-        let total_crew = u64::from(crew_i + crew_j);
-        self.crew_exposed += total_crew;
+    ) -> u32 {
+        self.crew_exposed += u64::from(crew);
 
-        // ── Evacuation activation ────────────────────────────────────────
-        // Each colliding vessel independently activates evacuation.
-        // Fatigued crews are slower to identify the need and coordinate,
-        // so p_evac rises further with fatigue.
-        let p_evac =
-            (BASE_EVAC_PROB + (1.0 - BASE_EVAC_PROB) * w.min(1.0) + 0.20 * max_fatigue).min(1.0);
-        if rng.gen::<f64>() < p_evac {
-            self.evac_events += 1;
-        }
-        if rng.gen::<f64>() < p_evac {
-            self.evac_events += 1;
-        }
-
-        // ── Crew fatalities ──────────────────────────────────────────────
-        // BaselineA: unaware of weather, higher fatigue accumulation → worse outcomes.
-        // Fatigue adds an independent multiplier: exhausted crew can't don life-jackets,
-        // can't reach muster stations, and react slowly to flooding.
-        let method_multiplier = match method {
-            Method::BaselineA => 2.0,
-            Method::BaselineB => 1.2,
-            Method::ProposedSystem => 1.0,
-        };
-        let fatigue_multiplier = 1.0 + 2.0 * max_fatigue; // +0% → +200% at fatigue=1
-        let p_fatal =
-            (BASE_FATAL_PROB_PER_CREW * (1.0 + 3.0 * w) * method_multiplier * fatigue_multiplier)
-                .min(1.0);
-
-        for _ in 0..(crew_i + crew_j) {
+        let p_fatal = (1.0 - survival_factor).clamp(0.0, 1.0);
+        let mut fatalities = 0u32;
+        for _ in 0..crew {
             if rng.gen::<f64>() < p_fatal {
-                self.fatal_crew += 1;
+                fatalities += 1;
             }
         }
+        self.fatal_crew += u64::from(fatalities);
+
+        if founders {
+            self.evac_events += 1;
+        }
+        fatalities
     }
 
     // ── Snapshot ─────────────────────────────────────────────────────────────
