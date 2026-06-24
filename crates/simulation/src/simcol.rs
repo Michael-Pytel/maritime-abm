@@ -325,7 +325,10 @@ mod tests {
         assert_eq!(classify_collision(0.0, 30.0).0, CollisionType::SideToSide);
         // ~90° apart → crossing / T-bone.
         assert_eq!(classify_collision(0.0, 90.0).0, CollisionType::FrontToSide);
-        assert_eq!(classify_collision(350.0, 80.0).0, CollisionType::FrontToSide);
+        assert_eq!(
+            classify_collision(350.0, 80.0).0,
+            CollisionType::FrontToSide
+        );
         // Reciprocal → head-on; angle folds across the 360° wrap.
         assert_eq!(classify_collision(0.0, 180.0).0, CollisionType::HeadOn);
         let (kind, theta) = classify_collision(10.0, 200.0);

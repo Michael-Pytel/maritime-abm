@@ -75,7 +75,7 @@ The contribution of this work is a maritime agent-based model in which the succe
   \node[good] (av)  at (10.0, 1.1){Give-way\\manoeuvre\\(Eq.~\ref{eq:avoidwp})};
   \node[good] (ok)  at (14.0, 1.1){Collision\\averted};
   \node[bad]  (col) at (10.0,-1.1){Hard\\collision\\(${\le}0.10$\,nm)};
-  \node[bad]  (sim) at (13.7,-1.1){SIMCOL\\damage $S_i$\\(Eq.~\ref{eq:fatalities})};
+  \node[bad]  (sim) at (13.7,-1.1){SIMCOL\\damage $S_i$\\(Eq.~\ref{eq:sfactor})};
   \node[proc] (sar) at (17.4,-1.1){SAR\\search\\(Eq.~\ref{eq:cdp})};
 
   \draw[arr] (W) -- (pc);
@@ -344,14 +344,28 @@ where $\hat{\mathbf{n}}$ is the unit normal to the struck side and $M_a' = M_a(1
   \label{eq:sfactor}
 \end{equation}
 %
-with knee $r_0 = 0.10$, full-loss penetration $r_1 = 0.30$, and the $0.25$ exponent of the SOLAS~II-1 $s$-factor. The per-collision expected fatalities are then
+with knee $r_0 = 0.10$, full-loss penetration $r_1 = 0.30$, and the $0.25$ exponent of the SOLAS~II-1 $s$-factor. The expected number of crew thrown into the water (man-overboard) per collision is then
 %
 \begin{equation}
-  \mathbb{E}[\text{fatalities}] = n_b\,\big(1 - S_i\big),
-  \label{eq:fatalities}
+  \mathbb{E}[\text{overboard}] = n_b\,\big(1 - S_i\big),
+  \label{eq:overboard}
 \end{equation}
 %
-with $n_b$ the struck-ship crew, drawn as a per-crew Bernoulli trial; each colliding vessel is evaluated independently as the struck ship. A vessel whose survival factor falls below the founder threshold $S^{\dagger} = 0.50$ founders, triggering evacuation and the search-and-rescue chain (Section~\ref{sec:sar}); $S_i \to 1$ is logged as a near-miss damage event. % TODO-VERIFY surrogate knee r_0, full-loss r_1 and founder threshold S-dagger are calibration values shaped to the SOLAS II-1 s-factor, not constants extracted from a source.
+with $n_b$ the struck-ship crew. Each crew member is an independent Bernoulli trial with overboard probability $1 - S_i$, and each colliding vessel is evaluated independently as the struck ship. This draw does \emph{not} kill directly: it determines how many crew enter the water, whose fate is decided by the search-and-rescue chain (Section~\ref{sec:sar}). The consequence then follows one of two parallel casualty paths. A vessel whose survival factor falls below the founder threshold $S^{\dagger} = 0.50$ founders, evacuating its \emph{whole} crew to a liferaft (the \textsc{Evac} chain); a struck vessel that stays afloat instead casts only its $\mathbb{E}[\text{overboard}]$ casualties into the water as individual persons-in-water for the man-overboard search (Section~\ref{sec:mob}). A fatality therefore arises only when a person in the water is not recovered within the survival window; $S_i \to 1$ is logged as a near-miss damage event. % TODO-VERIFY surrogate knee r_0, full-loss r_1 and founder threshold S-dagger are calibration values shaped to the SOLAS II-1 s-factor, not constants extracted from a source.
+
+\textbf{Encounter geometry.} Every logged collision is additionally classified by its encounter geometry, taken from the angle between the two vessels' headings folded onto $[0^\circ,180^\circ]$, $\theta = \min(|\psi_a - \psi_b|,\,360^\circ - |\psi_a - \psi_b|)$:
+%
+\begin{equation}
+  \text{type} =
+  \begin{cases}
+    \text{side-to-side (overtaking)}, & \theta < 45^\circ\\
+    \text{front-to-side (crossing)},  & 45^\circ \le \theta < 135^\circ\\
+    \text{head-on}, & \theta \ge 135^\circ.
+  \end{cases}
+  \label{eq:colltype}
+\end{equation}
+%
+Per-type counts are accumulated as diagnostic KPIs (Section~\ref{sec:experiment}). The classification is consistent with the consequence chain: near-parallel side-to-side hits have $\hat{\mathbf{n}}$ nearly orthogonal to the closing velocity, so $V_n \to 0$ in Eq.~\ref{eq:eabs} and they release little energy, whereas head-on and crossing encounters carry the large normal closing speed that drives deep penetration and foundering.
 
 % ==================================================================
 \section{External Collision-Frequency Validation (IWRAP)}
@@ -388,7 +402,7 @@ where $V_{ij} = \sqrt{(V_i^{(1)})^2 + (V_j^{(2)})^2 - 2 V_i^{(1)} V_j^{(2)}\cos\
 \label{sec:sar}
 % ==================================================================
 
-When a collision founders a vessel (Eq.~\ref{eq:fatalities}, $S_i < S^{\dagger}$) or a grounding forces an evacuation, the survivors enter a liferaft and the search-and-rescue (SAR) chain is triggered. A rescue agent is dispatched from the nearest shore base (a port) after a mobilisation delay $\Delta t_{\text{mob}} = 2$ ticks --- a helicopter ($80$\,kn) when the datum lies beyond $40$\,nm offshore, otherwise a patrol vessel ($25$\,kn)~\cite{imosar2018}. The asset then progresses through mobilise, transit, search, and embark phases; the subsystem layers two accredited components onto this transit. Figure~\ref{fig:fsm} shows the resulting vessel state machine.
+When a collision founders a vessel (Eq.~\ref{eq:sfactor}, $S_i < S^{\dagger}$) or a grounding forces an evacuation, the survivors enter a liferaft and the search-and-rescue (SAR) chain is triggered. A rescue agent is dispatched from the nearest shore base (a port) after a mobilisation delay $\Delta t_{\text{mob}} = 2$ ticks --- a helicopter ($80$\,kn) when the datum lies beyond $40$\,nm offshore, otherwise a patrol vessel ($25$\,kn)~\cite{imosar2018}. The asset then progresses through mobilise, transit, search, and embark phases; the subsystem layers two accredited components onto this transit. A second, parallel SAR chain handles the persons cast overboard from struck vessels that stay afloat (Eq.~\ref{eq:overboard}); it shares the same drift and random-search detection model but resolves each casualty individually (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the resulting vessel state machine.
 
 \begin{figure}[t]
 \centering
@@ -439,6 +453,56 @@ Rescue-asset performance degrades with season following the Arctic SAR framework
 %
 with air temperature $T$ ($^\circ$C) and wind speed $U$ (km/h). Rather than re-deriving the expert-assigned metocean thresholds, we adopt the framework's published month-group aggregation: each calendar month maps to one of four severity groups --- A (May--August, mildest), B (April, September), C (March, October, November), and D (January, February, December, harshest)~\cite{ashrafi2024}. The group multiplicatively reduces the asset's transit and search speed --- helicopter $1.00/0.95/0.77/0.60$ and patrol vessel $1.00/0.80/0.40/0.21$ for groups A--D, relative to the mildest group --- and sets the per-survivor boarding time ($2.1$--$10.7$\,min by helicopter, $6.1$--$31.2$\,min by vessel)~\cite{ashrafi2024}. On location, the asset embarks the $n_b$ survivors at this season-degraded rate before the case is logged \textsc{Rescued}. Transit, search (Eq.~\ref{eq:cdp}), and boarding therefore all lengthen in winter, so --- reproducing the source case study --- the longest rescue times occur December--February and the shortest May--August~\cite{ashrafi2024}.
 
+\subsection{Man-Overboard Search}
+\label{sec:mob}
+
+The casualties cast into the water by a struck-but-afloat vessel (Eq.~\ref{eq:overboard}) are handled as an explicit person-in-water search (Fig.~\ref{fig:mob}), following the man-overboard simulation of Karatas et al.~\cite{karatas2018}. Each collision spawns an \emph{incident}: its $\mathbb{E}[\text{overboard}]$ casualties become individual persons-in-water, scattered about the collision point and each assigned an independent drift bearing, so a search may recover some of an incident's people before others. One searcher --- selected and dispatched by the same nearest-base, helicopter-versus-patrol rule as the liferaft chain --- is tasked per incident and homes on the cluster centroid. While on scene it draws the Koopman per-tick detection of Eq.~\ref{eq:cdp} \emph{independently for every person}, recovering each as it is located. A person not recovered before the cold-water survival window $\tau_{\text{mob}} = 12$ ticks ($\approx 3$\,h) elapses is lost; this is the model's only path to a crew fatality. The window is far shorter than the $96$-tick liferaft endurance, reflecting unprotected immersion, and shrinks the effective margin in winter through the same Ashrafi speed degradation that slows the searcher (Section~\ref{sec:sar-ashrafi}). The two SAR chains thus differ only in granularity: the liferaft recovers a vessel's crew as one whole-group case, the man-overboard search resolves individuals.
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\footnotesize,
+  base/.style={draw, rounded corners=3pt, fill=gray!15, minimum width=1.2cm,
+               minimum height=0.7cm, align=center, inner sep=2pt},
+  asset/.style={draw, rounded corners=3pt, fill=orange!22, align=center, inner sep=3pt},
+  piw/.style={circle, draw=red!60!black, fill=red!35, minimum size=5pt, inner sep=0pt},
+  rec/.style={circle, draw=green!55!black, fill=green!40, minimum size=5pt, inner sep=0pt},
+  lost/.style={circle, draw=gray!70, fill=gray!30, minimum size=5pt, inner sep=0pt},
+  drift/.style={->, red!55!black, semithick, shorten >=1pt},
+]
+  % shore base + searcher transit
+  \node[base] (port) at (0,0) {shore\\base};
+  \node[asset] (s) at (2.5,1.0) {searcher\\(helo / patrol)};
+  \draw[->, dashed] (port.north east) to[bend left=14]
+        node[below right=-2pt, font=\scriptsize]{transit} (s.west);
+
+  % drifting search area
+  \draw[dashed, blue!55] (5.9,0.2) circle (1.75);
+  \node[blue!55, font=\scriptsize, align=center] at (5.9,2.35)
+        {search area $A(\tau)=\pi(r_0+u_d\tau)^2$};
+
+  % collision incident (star) + label
+  \node[star, star points=5, star point ratio=2.1, draw=black, fill=yellow!75,
+        minimum size=11pt, inner sep=0pt] (inc) at (5.9,0.2) {};
+  \node[font=\scriptsize] at (5.9,-1.55) {collision incident};
+  \draw[->, dashed] (s.east) to[bend left=10] (inc.north west);
+
+  % persons in water, each with an independent drift bearing
+  \node[piw]  (p1) at (5.0,0.95) {}; \draw[drift] (p1) -- ++(-0.55,0.40);
+  \node[piw]  (p2) at (6.9,0.85) {}; \draw[drift] (p2) -- ++(0.50,0.30);
+  \node[rec]  (p3) at (6.5,-0.55){}; \draw[drift] (p3) -- ++(0.45,-0.35);
+  \node[lost] (p4) at (5.0,-0.6) {}; \draw[drift] (p4) -- ++(-0.50,-0.30);
+
+  % legend
+  \node[piw,  label={[font=\scriptsize]right:person in water (drifting)}] at (8.9,1.05) {};
+  \node[rec,  label={[font=\scriptsize]right:recovered (located, Eq.~\ref{eq:cdp})}] at (8.9,0.30) {};
+  \node[lost, label={[font=\scriptsize]right:lost ($\tau>\tau_{\text{mob}}$, drowned)}] at (8.9,-0.45) {};
+\end{tikzpicture}%
+}
+\caption{Man-overboard search. A collision spawns one \emph{incident} whose casualties (Eq.~\ref{eq:overboard}) become individual persons-in-water, each scattered about the impact point and advected along its own drift bearing (red arrows). A single searcher --- chosen by the same nearest-base, helicopter-versus-patrol rule as the liferaft chain --- transits from a shore base and homes on the cluster centroid, then draws the Koopman detection (Eq.~\ref{eq:cdp}) \emph{independently per person} over the drift-growing search area, so individuals are recovered (green) as they are located. Anyone not reached before the cold-water survival window $\tau_{\text{mob}}$ elapses is lost (grey). Unlike the whole-group liferaft case of Fig.~\ref{fig:fsm}, each casualty resolves separately.}
+\label{fig:mob}
+\end{figure}
+
 % ==================================================================
 \section{Experimental Design}
 \label{sec:experiment}
@@ -484,7 +548,7 @@ Table~\ref{tab:scenarios} summarises the four scenarios; each runs 30 independen
 
 \subsection{Key Performance Indicators}
 
-Table~\ref{tab:kpis} defines the six KPIs. Ship-hours accumulate $0.25$\,h per \textsc{Active} vessel per tick.
+Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours accumulate $0.25$\,h per \textsc{Active} vessel per tick. A \emph{fatality} is now an emergent outcome rather than an instantaneous draw: it is a person cast overboard (Eq.~\ref{eq:overboard}) or a liferaft occupant who is not recovered before their survival window elapses, so \texttt{fatal\_per\_1k\_hrs} and \texttt{survival\_ratio} measure the joint performance of the consequence and search-and-rescue chains.
 
 \begin{table}[htbp]
     \caption{KPI definitions and hypothesis links.}
@@ -516,6 +580,8 @@ Table~\ref{tab:kpis} defines the six KPIs. Ship-hours accumulate $0.25$\,h per \
         \bottomrule
     \end{tabularx}
 \end{table}
+
+Alongside the six hypothesis KPIs, the engine accumulates \emph{diagnostic} telemetry counters that characterise the incident mix without entering the statistical battery: the collision-type breakdown (head-on, front-to-side, side-to-side counts from Eq.~\ref{eq:colltype}) and the man-overboard tallies (persons overboard, recovered, and lost). These are surfaced live on the dashboard and in the per-run snapshot to explain \emph{why} a given fatality or survival figure arose --- for instance, distinguishing a benign run dominated by low-energy overtaking contacts from one with foundering head-on impacts.
 
 Crew preparedness (KPI~6) is accumulated each tick for every \textsc{Active} vessel as the product of a weather-readiness and a fatigue-readiness term, with method awareness factor $\alpha_M \in \{2.0\,(\text{A}),\,1.3\,(\text{B}),\,1.0\,(\text{Proposed})\}$:
 %
@@ -647,6 +713,8 @@ Table~\ref{tab:constants} lists the principal engine constants with default valu
         helo / patrol cutoff & 40\,nm & SAR asset-selection datum range \\
         $w,\,r_0,\,u_d$ & 5\,nm, 2\,nm, 0.2\,nm/tk & MASSIM sweep / datum / drift \\
         survival window & 96 tk & liferaft endurance (24\,h) \\
+        $\tau_{\text{mob}}$ & 12 tk & MOB cold-water window (3\,h) \\
+        MOB scatter & 0.5\,nm & person-in-water datum spread \\
         $P_c$ (IWRAP) & $0.5\text{--}1.3{\times}10^{-4}$ & causation probability \\
         \bottomrule
     \end{tabularx}
