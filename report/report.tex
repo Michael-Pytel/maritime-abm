@@ -74,7 +74,7 @@ The contribution of this work is a maritime agent-based model in which the succe
   \node[dec]  (d)   at (6.8, 0)   {warning\\delivered?};
   \node[good] (av)  at (10.0, 1.1){Give-way\\manoeuvre\\(Eq.~\ref{eq:avoidwp})};
   \node[good] (ok)  at (14.0, 1.1){Collision\\averted};
-  \node[bad]  (col) at (10.0,-1.1){Hard\\collision\\(${\le}0.30$\,nm)};
+  \node[bad]  (col) at (10.0,-1.1){Hard\\collision\\(${\le}0.10$\,nm)};
   \node[bad]  (sim) at (13.7,-1.1){SIMCOL\\damage $S_i$\\(Eq.~\ref{eq:fatalities})};
   \node[proc] (sar) at (17.4,-1.1){SAR\\search\\(Eq.~\ref{eq:cdp})};
 
@@ -156,6 +156,8 @@ Cruise speed is drawn at spawn by vessel type ($u \sim \mathcal{U}(0,1)$):
 \end{equation}
 %
 \textbf{Waypoint pursuit.} With active target $\mathbf{t}$ (an avoidance waypoint if queued, else the current route waypoint), $\boldsymbol{\delta} = \mathbf{t} - \mathbf{p}_i$ and $\rho = \lVert\boldsymbol{\delta}\rVert$, a waypoint is reached when $\rho < 0.5$\,nm. The per-tick step is $s = \min(v_i\,\Delta t,\ \rho)$ and the proposed move is $\mathbf{p}_i' = \mathbf{p}_i + (\boldsymbol{\delta}/\rho)\,s$, with compass heading $\psi_i = (90^\circ - \operatorname{atan2}(\delta_y,\delta_x)) \bmod 360^\circ$. To prevent tunnelling through thin landmasses, the move is accepted at the first of up to five geometrically halved step lengths $s\cdot 2^{-j}$ ($j=0,\dots,4$) whose segment does not cross land; a post-move grounding guard reverts $\mathbf{p}_i$ to the last valid position if it ended on land. On reaching a port or route endpoint a vessel docks for a randomised dwell $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses ($d_i \leftarrow -d_i$). A fixed fleet size $N$ is maintained: when $|\text{fleet}| < N$, a fresh vessel is spawned onto a random hand-authored track.
+
+\textbf{Port-approach queueing.} Same-direction traffic converging on a shared port is not separated by the give-way rule (an overtaking pair has near-zero relative velocity, Section~\ref{sec:avoidance}), so to prevent vessels drawing up side-by-side and overlapping at the port mouth, a vessel within an approach radius $r_{\text{app}} = 3$\,nm of a port holds station (anchors) whenever another active vessel is closer to that port and within a queue gap $g = 0.5$\,nm. The leading vessel radios the trailing one to slow to its speed and keep distance, forming a stop-and-go queue whose throughput matches the leader's speed.
 
 \subsection{Weather and Hazard Field}
 \label{sec:weather}
@@ -315,7 +317,7 @@ where $d_k$ is the distance to obstacle $k$, $\hat{\mathbf{n}}_k$ the unit vecto
 \label{sec:consequence}
 % ==================================================================
 
-A \textbf{hard collision} is logged whenever two \textsc{Active} vessels close within $d_{\text{hit}} = 2\,r_{\text{coll}} = 0.30$\,nm. The consequence of a hard collision is evaluated with the DTU SIMCOL probabilistic damage and survivability model~\cite{lutzen2001}, which replaces an ad-hoc casualty rule with collision mechanics.
+A \textbf{hard collision} is logged when two \textsc{Active} vessels close within $d_{\text{hit}} = 2\,r_{\text{coll}} = 0.10$\,nm (${\approx}185$\,m, roughly a ship-length sum), counted once per encounter --- on the tick the pair \emph{enters} contact, not every tick it remains overlapping. The consequence of a hard collision is evaluated with the DTU SIMCOL probabilistic damage and survivability model~\cite{lutzen2001}, which replaces an ad-hoc casualty rule with collision mechanics.
 
 \textbf{External dynamics.} The energy released for hull deformation is the loss of kinetic energy of the rigid-body system between first contact and the common-velocity state, evaluated with the closed-form external-dynamics solution of Pedersen and Zhang~\cite{pedersenzhang1998} as used by Lützen~\cite{lutzen2001,pedersen1995}. Only the component of the closing velocity \emph{normal} to the struck vessel's side performs side-penetrating work, so for struck and striking displacements $M_a$, $M_b$ the absorbed energy is the reduced-mass energy on that normal component,
 %
@@ -626,7 +628,8 @@ Table~\ref{tab:constants} lists the principal engine constants with default valu
         warn / CPA / TTA gate & 20 / 5\,nm / 12 tk & avoidance gate \\
         $L_f,L_o$ & 3 / 5\,nm & give-way waypoint offsets \\
         cooldown & 3 tk & re-manoeuvre lockout \\
-        $r_{\text{coll}}$ & 0.15\,nm & hit at $2r=0.30$\,nm \\
+        $r_{\text{coll}}$ & 0.05\,nm & hit at $2r=0.10$\,nm \\
+        queue approach / gap & 3 / 0.5\,nm & port-approach queueing \\
         $(m_{\text{sway}},m_{\text{surge}})$ & $0.85, 0.05$ & SIMCOL added mass \\
         Minorsky $a,b$ & $47.2, 32.7$ & energy--volume (MJ, m$^3$) \\
         $\ell/L_{pp},\tau$ & $0.12$, 0.08\,m & damage length / side steel \\
