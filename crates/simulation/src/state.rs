@@ -199,6 +199,7 @@ impl SimState {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         });
     }
@@ -436,69 +437,77 @@ impl SimState {
         self.evac_since.retain(|id, _| alive_evac.contains(id));
     }
 
-    /// Mark vessels that should hold (anchor) in a port-approach queue.
+    /// True if `pos` lies within `radius_nm` of any port.
+    fn near_any_port(&self, pos: (f64, f64), radius_nm: f64) -> bool {
+        let r2 = radius_nm * radius_nm;
+        self.ports.iter().any(|p| dist2(pos, p.position) <= r2)
+    }
+
+    /// Apply same-destination following: a trailing vessel bound for the same
+    /// destination as a nearby leader matches the leader's speed (does not
+    /// overtake) and, if it draws too close, holds station to keep distance.
     ///
-    /// An active vessel within `port_approach_radius_nm` of a port holds if
-    /// another active vessel is *closer* to that port and within
-    /// `port_queue_gap_nm` — so a trailing ship waits behind a leader heading to
-    /// the same port instead of drawing up side-by-side and overlapping. The
-    /// flag is honoured by `VesselAgent::step` on the next tick. When a vessel
-    /// first joins a queue, the leader radios it to slow down and keep distance.
-    fn compute_port_queue(&mut self, tick: u64) {
-        let approach_r2 = self.config.port_approach_radius_nm.powi(2);
-        let gap2 = self.config.port_queue_gap_nm.powi(2);
-        let active: Vec<(usize, (f64, f64))> = self
+    /// For each active vessel this finds the nearest *leader* — another active
+    /// vessel that shares its destination (route endpoints within
+    /// `same_destination_nm`), lies ahead (closer to that destination), and is
+    /// within `follow_vicinity_nm`. The follower's speed is capped to the
+    /// leader's (`follow_speed_cap`, honoured by `VesselAgent::step`), and it
+    /// anchors when within `follow_keep_distance_nm`. On first acquiring a
+    /// leader it is radioed to slow down, match speed, and keep distance.
+    fn compute_following(&mut self, tick: u64) {
+        let vicinity2 = self.config.follow_vicinity_nm.powi(2);
+        let keep2 = self.config.follow_keep_distance_nm.powi(2);
+        let samedest2 = self.config.same_destination_nm.powi(2);
+
+        // (vessel_idx, position, destination, speed) for active, routed vessels.
+        let active: Vec<FollowEntry> = self
             .vessels
             .iter()
             .enumerate()
             .filter(|(_, v)| v.state.is_active())
-            .map(|(i, v)| (i, v.position))
+            .filter_map(|(i, v)| dest_of(v).map(|d| (i, v.position, d, v.speed_kn)))
             .collect();
 
-        // For each holding follower, the nearest leader (vessel index) it queues behind.
         let mut leader_of: Vec<Option<usize>> = vec![None; active.len()];
-        for (a, &(_, pos_a)) in active.iter().enumerate() {
-            // Nearest port within the approach radius (the one being approached).
-            let Some(port) = self
-                .ports
-                .iter()
-                .map(|p| p.position)
-                .filter(|&pp| dist2(pos_a, pp) <= approach_r2)
-                .min_by(|x, y| {
-                    dist2(pos_a, *x)
-                        .partial_cmp(&dist2(pos_a, *y))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-            else {
-                continue;
-            };
-            let d_a = dist2(pos_a, port);
-            // The leader is the nearest vessel ahead (closer to the port, within gap).
-            let mut best: Option<(usize, f64)> = None;
-            for (b, &(idx_b, pos_b)) in active.iter().enumerate() {
-                if a != b && dist2(pos_b, port) < d_a && dist2(pos_a, pos_b) < gap2 {
-                    let gap = dist2(pos_a, pos_b);
-                    if best.is_none_or(|(_, g)| gap < g) {
-                        best = Some((idx_b, gap));
-                    }
+        let mut hold: Vec<bool> = vec![false; active.len()];
+        for (a, &(_, pos_a, dest_a, _)) in active.iter().enumerate() {
+            let d_a = dist2(pos_a, dest_a); // follower's distance to its destination
+            let mut best: Option<(usize, f64)> = None; // (vessel_idx, gap²)
+            for (b, &(idx_b, pos_b, dest_b, _)) in active.iter().enumerate() {
+                if a == b
+                    || dist2(dest_a, dest_b) > samedest2 // not the same destination
+                    || dist2(pos_b, dest_a) >= d_a
+                // not ahead of us
+                {
+                    continue;
+                }
+                let gap = dist2(pos_a, pos_b);
+                if gap <= vicinity2 && best.is_none_or(|(_, g)| gap < g) {
+                    best = Some((idx_b, gap));
                 }
             }
-            leader_of[a] = best.map(|(idx_b, _)| idx_b);
+            if let Some((idx_b, gap)) = best {
+                leader_of[a] = Some(idx_b);
+                hold[a] = gap < keep2;
+            }
         }
 
-        // Apply the hold flags; collect newly-formed queue joins for messaging.
+        // Apply caps / holds; collect newly-formed follows for messaging.
         let mut new_joins: Vec<(usize, usize)> = Vec::new(); // (leader_idx, follower_idx)
-        for (a, &(i, _)) in active.iter().enumerate() {
-            let hold = leader_of[a].is_some();
-            if hold && !self.vessels[i].anchored {
-                if let Some(leader_idx) = leader_of[a] {
+        for (a, &(i, ..)) in active.iter().enumerate() {
+            if let Some(leader_idx) = leader_of[a] {
+                if self.vessels[i].follow_speed_cap.is_none() {
                     new_joins.push((leader_idx, i));
                 }
+                self.vessels[i].follow_speed_cap = Some(self.vessels[leader_idx].speed_kn);
+                self.vessels[i].anchored = hold[a];
+            } else {
+                self.vessels[i].follow_speed_cap = None;
+                self.vessels[i].anchored = false;
             }
-            self.vessels[i].anchored = hold;
         }
 
-        // The leader radios each newly-queued follower to slow and keep distance.
+        // The leader radios each newly-following vessel to slow and keep distance.
         for (leader_idx, follower_idx) in new_joins {
             let msg = VesselMsg {
                 tick,
@@ -686,9 +695,9 @@ impl SimState {
             v.avoidance_cooldown = v.avoidance_cooldown.saturating_sub(1);
         }
 
-        // Port-approach queueing: hold trailing vessels behind a leader bound
-        // for the same port so they queue instead of bunching side-by-side.
-        self.compute_port_queue(tick);
+        // Same-destination following: trailing vessels match a leader's speed
+        // and keep distance instead of drawing up side-by-side.
+        self.compute_following(tick);
 
         // Hard-collision detection + SIMCOL consequence evaluation.
         //
@@ -708,6 +717,14 @@ impl SimState {
                 let dx = self.vessels[i].position.0 - self.vessels[j].position.0;
                 let dy = self.vessels[i].position.1 - self.vessels[j].position.1;
                 if (dx * dx + dy * dy).sqrt() > config.collision_trigger_field {
+                    continue;
+                }
+                // Harbour-approach water is VTS-controlled: encounters within the
+                // port exclusion radius are not counted as collisions.
+                let excl = config.port_collision_exclusion_nm;
+                if self.near_any_port(self.vessels[i].position, excl)
+                    || self.near_any_port(self.vessels[j].position, excl)
+                {
                     continue;
                 }
 
@@ -959,6 +976,23 @@ impl SimState {
     #[must_use]
     pub fn shore_stations_json(&self) -> Vec<serde_json::Value> {
         vec![]
+    }
+}
+
+/// An active routed vessel as seen by the following step:
+/// `(vessel_index, position, destination, speed_kn)`.
+type FollowEntry = (usize, (f64, f64), (f64, f64), f64);
+
+/// The destination endpoint a vessel is currently heading toward (the route
+/// endpoint in its travel direction), or `None` if it has no usable route.
+fn dest_of(v: &VesselAgent) -> Option<(f64, f64)> {
+    if v.route.len() < 2 {
+        return None;
+    }
+    if v.route_direction > 0 {
+        v.route.last().copied()
+    } else {
+        v.route.first().copied()
     }
 }
 
@@ -1438,6 +1472,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         };
         state.vessels.push(mk(1, VesselState::Lost));
@@ -1482,6 +1517,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         };
         state.vessels.push(mk(1, 90.0)); // heading east
@@ -1512,23 +1548,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_port_queue_holds_follower_and_radios() {
-        let cfg = test_cfg();
-        let mut state = SimState::new(cfg).unwrap();
-        assert!(!state.ports.is_empty());
-        let port = state.ports[0].position;
-        let mk = |id: u64, pos: (f64, f64)| VesselAgent {
+    /// A vessel agent bound for `dest` (route endpoint in travel direction).
+    fn mk_bound(id: u64, pos: (f64, f64), dest: (f64, f64), speed: f64) -> VesselAgent {
+        VesselAgent {
             id,
             name: format!("V{id}"),
             vessel_type: "cargo".into(),
-            route: vec![port, (port.0 + 50.0, port.1)],
+            // route_direction +1 → destination is the last waypoint.
+            route: vec![(pos.0 + 5.0, pos.1), dest],
             route_index: 0,
             route_direction: 1,
             position: pos,
             last_valid_position: pos,
             heading_deg: 270.0,
-            speed_kn: 12.0,
+            speed_kn: speed,
             state: VesselState::Active,
             n_crew: 10,
             dock_until_tick: None,
@@ -1539,23 +1572,66 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
-        };
-        // Leader 0.5 nm from port; follower 0.3 nm behind it (both within the
-        // 3 nm approach and the 0.5 nm queue gap).
-        let leader = mk(1, (port.0 + 0.5, port.1));
-        let follower = mk(2, (port.0 + 0.8, port.1));
+        }
+    }
+
+    #[test]
+    fn test_following_caps_speed_and_radios() {
+        // Two vessels bound for the same destination, far from any port: the
+        // faster trailing one is capped to the leader's speed and, drawing
+        // close, holds to keep distance — and is radioed to do so.
+        let cfg = test_cfg();
+        let mut state = SimState::new(cfg).unwrap();
+        let dest = (700.0, 700.0); // open water, well away from ports
+                                   // Leader nearer the destination (slower); follower behind (faster).
+        let leader = mk_bound(1, (650.0, 700.0), dest, 10.0);
+        let follower = mk_bound(2, (649.7, 700.0), dest, 18.0);
         state.vessels.push(leader);
         state.vessels.push(follower);
 
-        state.compute_port_queue(0);
+        state.compute_following(0);
 
-        assert!(!state.vessels[0].anchored, "leader keeps going");
-        assert!(state.vessels[1].anchored, "follower holds in the queue");
+        assert_eq!(
+            state.vessels[1].follow_speed_cap,
+            Some(10.0),
+            "follower matches the leader's speed (no overtaking)"
+        );
+        assert!(
+            state.vessels[0].follow_speed_cap.is_none(),
+            "leader is unconstrained"
+        );
+        assert!(state.vessels[1].anchored, "follower holds to keep distance");
         let radioed = state.comms_log.iter().any(|m| {
             matches!(m.kind, MsgKind::KeepDistance { .. }) && m.from_id == 1 && m.to_id == 2
         });
-        assert!(radioed, "leader radios the follower to keep distance");
+        assert!(
+            radioed,
+            "leader radios the follower to slow and keep distance"
+        );
+    }
+
+    #[test]
+    fn test_no_collision_within_port_exclusion() {
+        // Two overlapping vessels inside the 1 nm port exclusion log no collision.
+        let cfg = test_cfg();
+        let mut state = SimState::new(cfg).unwrap();
+        let port = state.ports[0].position;
+        let at = (port.0 + 0.2, port.1); // 0.2 nm from the port, overlapping
+        let mut a = mk_bound(1, at, (port.0 + 50.0, port.1), 12.0);
+        let mut b = mk_bound(2, at, (port.0 + 50.0, port.1), 12.0);
+        a.route = vec![]; // empty route → no navigation, stay overlapped
+        b.route = vec![];
+        state.vessels.push(a);
+        state.vessels.push(b);
+
+        let records = crate::ais::load_ais(&state.config.ais_path).unwrap();
+        state.run_tick(&records);
+        assert_eq!(
+            state.kpi.collision_events, 0,
+            "encounters within the port exclusion are not collisions"
+        );
     }
 
     #[test]
@@ -1589,6 +1665,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         });
 
@@ -1643,6 +1720,7 @@ mod tests {
                 avoided_vessel_id: None,
                 avoiding: false,
                 anchored: false,
+                follow_speed_cap: None,
                 fatigue: 0.0,
             });
             // Run until the asset reaches the datum (rescue count recorded).
@@ -1697,6 +1775,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         });
 
@@ -1747,6 +1826,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         };
 

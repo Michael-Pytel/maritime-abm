@@ -112,11 +112,17 @@ pub struct VesselAgent {
     /// in the WebSocket snapshot so the frontend can highlight the ship.
     pub avoiding: bool,
 
-    /// `true` while the vessel is holding (anchored) in a port-approach queue
-    /// behind a leading vessel.  Set each tick by the queueing step; honoured by
-    /// `step` to skip navigation.  Included in the snapshot for the frontend.
+    /// `true` while the vessel is holding (anchored) behind a leading vessel to
+    /// keep distance.  Set each tick by the following step; honoured by `step`
+    /// to skip navigation.  Included in the snapshot for the frontend.
     #[serde(default)]
     pub anchored: bool,
+
+    /// Speed cap (knots) imposed by a leader the vessel is following, so it
+    /// matches the leader's speed and does not overtake.  `None` when not
+    /// following.  Set each tick by the following step.
+    #[serde(skip)]
+    pub follow_speed_cap: Option<f64>,
 
     // ── Crew fatigue ──────────────────────────────────────────────────────
     /// Crew fatigue level ∈ [0, 1].
@@ -251,8 +257,12 @@ impl VesselAgent {
         }
 
         // ── Move toward target ────────────────────────────────────────────
-        // 1 tick = 15 min = 0.25 h
-        let speed_nm_per_tick = self.speed_kn * 0.25;
+        // 1 tick = 15 min = 0.25 h. A leader being followed caps the speed so
+        // the vessel matches the leader and does not overtake.
+        let eff_speed = self
+            .follow_speed_cap
+            .map_or(self.speed_kn, |cap| self.speed_kn.min(cap));
+        let speed_nm_per_tick = eff_speed * 0.25;
         let full_step = speed_nm_per_tick.min(dist);
 
         // Sub-step halving against land mask (up to 5 halvings).
@@ -325,12 +335,14 @@ impl VesselAgent {
         }
         self.state = VesselState::Docked;
 
-        // Clear any avoidance state so the return voyage starts clean.
+        // Clear any avoidance / following state so the return voyage starts clean.
         self.avoidance_wps.clear();
         self.avoidance_cooldown = 0;
         self.avoiding_vessel_id = None;
         self.avoided_vessel_id = None;
         self.avoiding = false;
+        self.anchored = false;
+        self.follow_speed_cap = None;
 
         let span = config
             .port_dwell_max_ticks
@@ -477,6 +489,7 @@ mod tests {
             avoided_vessel_id: None,
             avoiding: false,
             anchored: false,
+            follow_speed_cap: None,
             fatigue: 0.0,
         }
     }

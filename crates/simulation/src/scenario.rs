@@ -34,13 +34,20 @@ pub struct SimConfig {
 
     // --- physics ---
     pub collision_radius_nm: f64,
+    /// Within this distance (nm) of any port, encounters are not counted as
+    /// collisions (harbour-approach / VTS-controlled water).
+    pub port_collision_exclusion_nm: f64,
 
-    // --- port-approach queueing (anti-funnel) ---
-    /// Distance (nm) from a port within which approach-queueing applies.
-    pub port_approach_radius_nm: f64,
-    /// Minimum separation (nm) a vessel keeps behind a leader heading to the
-    /// same port; closer than this it holds (anchors) until the gap opens.
-    pub port_queue_gap_nm: f64,
+    // --- same-destination following (anti-overtake / queueing) ---
+    /// Two vessels follow each other when within this vicinity (nm) and bound
+    /// for the same destination; the trailing one matches the leader's speed.
+    pub follow_vicinity_nm: f64,
+    /// Closer than this separation (nm) the follower holds (anchors) to keep
+    /// distance behind its leader.
+    pub follow_keep_distance_nm: f64,
+    /// Two vessels share a destination when their route endpoints (in the
+    /// travel direction) are within this distance (nm) of each other.
+    pub same_destination_nm: f64,
 
     /// SIMCOL collision-consequence surrogate parameters.
     #[serde(default)]
@@ -139,8 +146,10 @@ impl Default for SimConfig {
             // Hull-contact radius: a hard collision triggers at 2·r = 0.10 nm
             // (~185 m, about one ship-length sum) rather than the old 0.30 nm.
             collision_radius_nm: 0.05,
-            port_approach_radius_nm: 3.0,
-            port_queue_gap_nm: 0.5,
+            port_collision_exclusion_nm: 1.0,
+            follow_vicinity_nm: 3.0,
+            follow_keep_distance_nm: 0.5,
+            same_destination_nm: 5.0,
             simcol: crate::simcol::SimcolParams::default(),
             sar: crate::sar::SarParams::default(),
             sim_month: default_sim_month(),
