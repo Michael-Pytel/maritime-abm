@@ -1,7 +1,7 @@
 # Claude Code Handoff — Maritime ABM: report ↔ code reconciliation + restructure
  
 > **Task for this session.** Restructure `report.tex` so it describes the *actual* Rust/krABMaga
-> system (Baltic+North Sea, AIS-derived routing, multi-vessel), and write in the accredited
+> system (Baltic+North Sea, hand-authored vessel tracks + manual ports, multi-vessel), and write in the accredited
 > death-probability and SAR methods (DTU SIMCOL, IWRAP, TU Delft Force Field, MASSIM, Ashrafi)
 > **as implemented** (present tense). The human will provide the source PDFs for those external
 > methods so equations are verified, not invented. Until those PDFs arrive, mark any external
@@ -14,10 +14,20 @@
 **The current `report.tex` describes an OLD design that the code no longer matches.** The report
 is written around Python/Mesa, a 100×100 nm synthetic archipelago, manual HTML waypoints, a
 ship-to-ship weather mesh, coastal stations, and a deterministic rescue pipeline. The **actual
-code** is Rust/krABMaga on the **real Baltic+North Sea**, with **AIS-derived routes**, **CPA/COLREGS
+code** is Rust/krABMaga on the **real Baltic+North Sea**, with **hand-authored vessel tracks +
+manually drawn ports** (both drawn in `tools/waypoint_editor.html`), **CPA/COLREGS
 collision avoidance**, **fatigue-coupled comms**, and a **per-crew Bernoulli** consequence model —
 and has **no mesh, no coastal stations, and no SAR subsystem at all**. The restructure must close
 this gap *and* layer in the accredited methods the human wants.
+
+> **CORRECTION (manual tracks, not AIS).** An earlier draft of this handoff claimed the code uses
+> *AIS-derived routes* and *automatic ports*. That is wrong. Routes in `data/ais_paths.json` are
+> **hand-authored keypoint polylines** drawn in `tools/waypoint_editor.html` (Vessels tab) — the
+> file is merely *named* `ais_paths.json`. Ports in `data/ports.json` are **manually drawn polygons**
+> from the same tool's Ports tab; the sim loads `ports.json` first and only falls back to deriving
+> ports from route endpoints (`ais::extract_ports`) when that file is absent. The `crates/aisprocess`
+> ETL *can* generate routes from real `aisdk-*.csv` dumps, but it is **not** the live data source. So
+> the report's original "manual HTML waypoint lanes" wording was actually *correct* — keep it manual.
  
 ---
  
@@ -39,7 +49,8 @@ this gap *and* layer in the accredited methods the human wants.
 |---|---|---|
 | Python / Mesa framework | **Rust / krABMaga 0.6** (axum, tokio, rayon, geo/rstar, React19/leaflet frontend) | Rewrite all framework text |
 | 100×100 nm synthetic archipelago | **Real Baltic+North Sea**, equirectangular, φ∈[50.5,66.0]°, λ∈[−5.0,31.0]°, ≈1136×930 nm, Natural-Earth coastline in R-tree | Rewrite world/geometry §; `WORLD_SIZE_NM`=100 constant is wrong |
-| Manual HTML waypoint lanes | **AIS-derived routes** via `aisprocess` ETL (`aisdk-*.csv` → `data/ais_paths.json`, schema `mmsi/name/vessel_type/waypoints[]`); waypoint pursuit + 5-level land sub-stepping | Rewrite routing § to AIS-driven/automatic |
+| Manual HTML waypoint lanes | **Hand-authored keypoint polylines** drawn in `tools/waypoint_editor.html` → `data/ais_paths.json` (schema `mmsi/name/vessel_type/waypoints[]`); waypoint pursuit + 5-level land sub-stepping. `aisprocess` ETL exists but is **not** the live source. | **Keep manual** — original wording was right; only update mechanism (real geography, polyline pursuit, land sub-stepping). Do **not** rewrite to "AIS-driven/automatic". |
+| *(not in old report)* Ports | **Manually drawn polygons** in `tools/waypoint_editor.html` (Ports tab) → `data/ports.json`; loaded via `load_ports_from_file`, auto-derivation from route endpoints (`extract_ports`) is only a fallback when `ports.json` is missing | Describe ports as **manually authored** zones, not auto-derived |
 | Ship-to-ship weather mesh (2-hop gossip, +30 nm) | **No mesh.** Vessels read weather only at own cell | Remove mesh as the headline OR reframe (see §5 decision) |
 | Coastal station agents (noisy broadcast) | **None** | Remove |
 | Confidence-weighted forecast fusion + `E_wx` | **None** — no forecasts exist | Remove fusion eqs |
@@ -68,8 +79,9 @@ y=(φ−φmin)·k_lat. E–W distortion ≤~6–10% at edges, accepted.
 cargo/container/bulk 10+6u; else 10+10u.
  
 **Waypoint pursuit** — arrival when ρ<0.5 nm; step s=min(0.25·v, ρ); land sub-stepping over up to 5
-halved steps s·2⁻ʲ; grounding guard reverts to last valid position. Ports: dwell D~U{8,48} ticks,
-then reverse direction. Fixed fleet: respawn onto random AIS route when |fleet|<N.
+halved steps s·2⁻ʲ; grounding guard reverts to last valid position. Ports (manually drawn polygons
+in `data/ports.json`): on entry the vessel docks, dwells D~U{8,48} ticks, then reverses direction.
+Fixed fleet: respawn onto a random hand-authored track when |fleet|<N.
  
 **Fatigue F∈[0,1]** (internal, not snapshotted):
 - circadian c(t)=½(1−cos(2π(t−3)/24)), peaks ~03:00, trough ~15:00
@@ -155,11 +167,11 @@ become meaningful.
 ## 5. Strategic fork the human already half-answered
  
 The **headline thesis of `report.tex` is the weather mesh** — which **does not exist in code**. The
-human's restructure brief says the real system is AIS-routed multi-vessel Rust with accredited
-death/SAR models. Two coherent endpoints:
+human's restructure brief says the real system is multi-vessel Rust on hand-authored tracks with
+accredited death/SAR models. Two coherent endpoints:
  
 - **(Likely intended) Re-baseline the report on the real system** — foreground CPA + fatigue-gated
-  comms + storm corridor + real geography + AIS routing as the contribution; add SIMCOL/IWRAP/SAR as
+  comms + storm corridor + real geography + hand-authored track following as the contribution; add SIMCOL/IWRAP/SAR as
   the rigour upgrades. Drop or demote the mesh.
 - **(Larger) Build the mesh to match the old thesis** — biggest effort, deepest gap; only if they
   explicitly commit.
