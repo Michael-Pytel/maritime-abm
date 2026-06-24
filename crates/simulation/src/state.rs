@@ -241,14 +241,11 @@ impl SimState {
 
     /// Nearest shore base (port position, field coords) to a datum, if any.
     fn nearest_base(&self, datum: (f64, f64)) -> Option<(f64, f64)> {
-        self.ports
-            .iter()
-            .map(|p| p.position)
-            .min_by(|a, b| {
-                let da = dist2(*a, datum);
-                let db = dist2(*b, datum);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            })
+        self.ports.iter().map(|p| p.position).min_by(|a, b| {
+            let da = dist2(*a, datum);
+            let db = dist2(*b, datum);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     /// Run one tick of the search-and-rescue subsystem.
@@ -256,9 +253,9 @@ impl SimState {
     /// 1. Record the onset tick of any newly foundered (`Evac`) vessel.
     /// 2. Dispatch a rescue asset (helicopter / patrol) from the nearest shore
     ///    base to each foundered vessel not yet being serviced.
-    /// 3. Advance each asset: mobilise, then transit toward the datum; on
-    ///    arrival the vessel is `Rescued` (or `Lost` if the liferaft survival
-    ///    time has elapsed). Record the rescue Time-to-Arrival KPI.
+    /// 3. Advance each asset: mobilise, transit to the datum, then run a
+    ///    Koopman random search over the drifting liferaft; a detection draw
+    ///    yields `Rescued`. Record the rescue Time-to-Arrival KPI on arrival.
     /// 4. Time out any foundered vessel whose survival window has passed.
     #[allow(clippy::too_many_lines)]
     fn run_sar(&mut self, tick: u64) {
@@ -268,6 +265,22 @@ impl SimState {
         for v in &self.vessels {
             if v.state == VesselState::Evac {
                 self.evac_since.entry(v.id).or_insert(tick);
+            }
+        }
+
+        // (1b) Liferaft drift: advect each foundered datum along the prevailing
+        // current, which also grows the search-area uncertainty over time.
+        if sar.drift_speed_nm_per_tick > 0.0 {
+            let psi = sar.drift_bearing_deg.to_radians();
+            let (dx, dy) = (
+                psi.sin() * sar.drift_speed_nm_per_tick,
+                psi.cos() * sar.drift_speed_nm_per_tick,
+            );
+            for v in &mut self.vessels {
+                if v.state == VesselState::Evac {
+                    v.position.0 += dx;
+                    v.position.1 += dy;
+                }
             }
         }
 
@@ -297,27 +310,34 @@ impl SimState {
                     target_vessel_id: vid,
                     phase: crate::sar::RescuePhase::Mobilising,
                     mobilising_ticks_left: sar.mobilisation_delay_ticks,
+                    embark_ticks_left: 0,
                     dispatch_tick: tick,
                 });
             }
             // With no shore base reachable the vessel waits and times out (4).
         }
 
-        // (3) Advance assets. Collect arrivals and retirements without holding a
-        // mutable borrow on the vessel list.
-        let datums: std::collections::HashMap<u64, (f64, f64)> = self
+        // (3) Advance assets. Ashrafi (2024) seasonal degradation: the calendar
+        // month sets a month-group that scales transit/search speed and the
+        // survivor-boarding rate, so rescues are slowest in winter.
+        let group = crate::ashrafi::MonthGroup::from_month(self.config.sim_month);
+
+        // Collect each datum's position and crew without holding a mutable
+        // borrow on the vessel list.
+        let datums: std::collections::HashMap<u64, ((f64, f64), u32)> = self
             .vessels
             .iter()
             .filter(|v| v.state == VesselState::Evac)
-            .map(|v| (v.id, v.position))
+            .map(|v| (v.id, (v.position, v.n_crew)))
             .collect();
-        let mut arrivals: Vec<(u64, u64)> = Vec::new(); // (vessel_id, tta_ticks)
+        let mut rescued_now: Vec<u64> = Vec::new(); // vessels recovered this tick
         let mut retire: Vec<u64> = Vec::new(); // rescue-agent ids to remove
         for agent in &mut self.rescue_agents {
-            let Some(&datum) = datums.get(&agent.target_vessel_id) else {
+            let Some(&(datum, crew)) = datums.get(&agent.target_vessel_id) else {
                 retire.push(agent.id); // target no longer awaiting rescue
                 continue;
             };
+            let speed_kn = agent.kind.speed_kn(&sar) * group.speed_multiplier(agent.kind);
             match agent.phase {
                 crate::sar::RescuePhase::Mobilising => {
                     agent.mobilising_ticks_left = agent.mobilising_ticks_left.saturating_sub(1);
@@ -326,41 +346,62 @@ impl SimState {
                     }
                 }
                 crate::sar::RescuePhase::Transiting => {
-                    let step_nm = agent.kind.speed_kn(&sar) * 0.25;
+                    let step_nm = speed_kn * 0.25;
                     let dx = datum.0 - agent.position.0;
                     let dy = datum.1 - agent.position.1;
                     let d = (dx * dx + dy * dy).sqrt();
                     if d <= sar.arrival_radius_nm.max(step_nm) {
+                        // On scene: record Time-to-Arrival and begin searching.
                         agent.position = datum;
-                        arrivals.push((agent.target_vessel_id, tick - agent.dispatch_tick));
-                        retire.push(agent.id);
+                        agent.phase = crate::sar::RescuePhase::Searching;
+                        self.kpi.record_rescue(tick - agent.dispatch_tick);
                     } else {
                         agent.position.0 += dx / d * step_nm;
                         agent.position.1 += dy / d * step_nm;
+                    }
+                }
+                crate::sar::RescuePhase::Searching => {
+                    // Follow the drifting datum and draw a Koopman detection at
+                    // the season-degraded search speed.
+                    agent.position = datum;
+                    let elapsed = tick.saturating_sub(
+                        *self
+                            .evac_since
+                            .get(&agent.target_vessel_id)
+                            .unwrap_or(&tick),
+                    );
+                    let p = crate::sar::detection_prob_tick(&sar, speed_kn, elapsed);
+                    if self.rng.gen::<f64>() < p {
+                        // Located: embark the survivors at the season-degraded rate.
+                        let board_min = f64::from(crew) * group.boarding_min_per_person(agent.kind);
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let board_ticks = (board_min / 15.0).ceil() as u32;
+                        agent.embark_ticks_left = board_ticks.max(1);
+                        agent.phase = crate::sar::RescuePhase::Embarking;
+                    }
+                }
+                crate::sar::RescuePhase::Embarking => {
+                    agent.position = datum;
+                    agent.embark_ticks_left = agent.embark_ticks_left.saturating_sub(1);
+                    if agent.embark_ticks_left == 0 {
+                        rescued_now.push(agent.target_vessel_id);
+                        retire.push(agent.id);
                     }
                 }
             }
         }
         self.rescue_agents.retain(|a| !retire.contains(&a.id));
 
-        // Resolve arrivals: rescued if within the liferaft survival window,
-        // otherwise the survivors are lost.
-        let survival_limit = u64::from(sar.liferaft_survival_ticks);
-        for (vid, tta_ticks) in arrivals {
-            let evac_age = tick.saturating_sub(*self.evac_since.get(&vid).unwrap_or(&tick));
+        // Apply detections: survivors recovered.
+        for vid in rescued_now {
             if let Some(v) = self.vessels.iter_mut().find(|v| v.id == vid) {
-                if evac_age <= survival_limit {
-                    v.state = VesselState::Rescued;
-                    self.kpi.record_rescue(tta_ticks);
-                } else {
-                    v.state = VesselState::Lost;
-                    self.wrecks.push_back((tick, v.position.0, v.position.1));
-                }
+                v.state = VesselState::Rescued;
             }
             self.evac_since.remove(&vid);
         }
 
         // (4) Time out foundered vessels whose survival window has elapsed.
+        let survival_limit = u64::from(sar.liferaft_survival_ticks);
         let mut timed_out: Vec<u64> = Vec::new();
         for v in &mut self.vessels {
             if v.state == VesselState::Evac {
@@ -1336,7 +1377,10 @@ mod tests {
             state.kpi.collision_events >= 1,
             "a hard collision is recorded"
         );
-        assert!(state.kpi.fatal_crew > 0, "foundering crew suffer fatalities");
+        assert!(
+            state.kpi.fatal_crew > 0,
+            "foundering crew suffer fatalities"
+        );
         assert!(state.kpi.evac_events >= 1, "a founder triggers evacuation");
         // The foundered vessel enters the SAR chain and a rescue asset launches.
         let evac = state
@@ -1402,6 +1446,107 @@ mod tests {
             state.kpi.snapshot(0).avg_tta_hours > 0.0,
             "rescue TTA is positive"
         );
+    }
+
+    #[test]
+    fn test_ashrafi_winter_rescue_is_slower_than_summer() {
+        // The same datum is reached more slowly in January (Group D) than in
+        // July (Group A): the Ashrafi seasonal degradation of transit speed.
+        let arrival_tta = |month: u8| -> f64 {
+            let mut cfg = test_cfg();
+            cfg.sim_month = month;
+            let mut state = SimState::new(cfg).unwrap();
+            let base = state.ports[0].position;
+            let datum = (base.0 + 30.0, base.1); // ~30 nm → patrol vessel
+            state.vessels.push(VesselAgent {
+                id: 1,
+                name: "Foundered".into(),
+                vessel_type: "cargo".into(),
+                route: vec![],
+                route_index: 0,
+                route_direction: 1,
+                position: datum,
+                last_valid_position: datum,
+                heading_deg: 0.0,
+                speed_kn: 0.0,
+                state: VesselState::Evac,
+                n_crew: 10,
+                dock_until_tick: None,
+                last_port_id: None,
+                avoidance_wps: vec![],
+                avoidance_cooldown: 0,
+                avoiding_vessel_id: None,
+                avoided_vessel_id: None,
+                avoiding: false,
+                fatigue: 0.0,
+            });
+            // Run until the asset reaches the datum (rescue count recorded).
+            for t in 0..400 {
+                state.run_sar(t);
+                if state.kpi.rescue_count > 0 {
+                    break;
+                }
+            }
+            state.kpi.snapshot(0).avg_tta_hours
+        };
+
+        let summer = arrival_tta(7);
+        let winter = arrival_tta(1);
+        assert!(summer > 0.0 && winter > 0.0, "both seasons reach the datum");
+        assert!(
+            winter > summer * 2.0,
+            "winter transit (Group D) is much slower: winter={winter}h summer={summer}h"
+        );
+    }
+
+    #[test]
+    fn test_sar_short_survival_window_is_lost() {
+        // With a very short liferaft survival window the foundered vessel is
+        // lost before it can be searched out — the latency → survival link.
+        let mut cfg = test_cfg();
+        cfg.sar.liferaft_survival_ticks = 1;
+        cfg.sar.mobilisation_delay_ticks = 1;
+        let mut state = SimState::new(cfg).unwrap();
+        let base = state.ports[0].position;
+        // Place the datum far offshore so the asset cannot arrive in time.
+        let datum = (base.0 + 600.0, base.1);
+
+        state.vessels.push(VesselAgent {
+            id: 1,
+            name: "Foundered".into(),
+            vessel_type: "cargo".into(),
+            route: vec![],
+            route_index: 0,
+            route_direction: 1,
+            position: datum,
+            last_valid_position: datum,
+            heading_deg: 0.0,
+            speed_kn: 0.0,
+            state: VesselState::Evac,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            fatigue: 0.0,
+        });
+
+        for t in 0..20 {
+            state.run_sar(t);
+            if state.vessels[0].state != VesselState::Evac {
+                break;
+            }
+        }
+
+        assert_eq!(
+            state.vessels[0].state,
+            VesselState::Lost,
+            "an unreachable datum past the survival window is lost"
+        );
+        assert!(!state.wrecks.is_empty(), "a wreck marker is recorded");
     }
 
     #[test]

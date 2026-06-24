@@ -48,6 +48,10 @@ pub enum RescuePhase {
     Mobilising,
     /// En route to the datum.
     Transiting,
+    /// On scene, running a random search over the drifting datum.
+    Searching,
+    /// Survivors located; embarking them under the season-degraded boarding rate.
+    Embarking,
 }
 
 impl RescuePhase {
@@ -56,6 +60,8 @@ impl RescuePhase {
         match self {
             RescuePhase::Mobilising => "mobilising",
             RescuePhase::Transiting => "transiting",
+            RescuePhase::Searching => "searching",
+            RescuePhase::Embarking => "embarking",
         }
     }
 }
@@ -74,6 +80,8 @@ pub struct RescueAgent {
     pub phase: RescuePhase,
     /// Mobilisation ticks remaining before transit begins.
     pub mobilising_ticks_left: u32,
+    /// Boarding ticks remaining once survivors have been located.
+    pub embark_ticks_left: u32,
     /// Tick at which the asset was dispatched (for Time-to-Arrival).
     pub dispatch_tick: u64,
 }
@@ -94,6 +102,18 @@ pub struct SarParams {
     pub liferaft_survival_ticks: u32,
     /// Distance (nm) within which an asset is considered to have reached the datum.
     pub arrival_radius_nm: f64,
+
+    // ── MASSIM random-search detection (Koopman) ─────────────────────────────
+    /// Number of cooperating searchers per datum.
+    pub searchers: u32,
+    /// Searcher sweep width (nm).
+    pub sweep_width_nm: f64,
+    /// Initial datum uncertainty radius (nm) at the moment of the incident.
+    pub initial_uncertainty_nm: f64,
+    /// Liferaft drift speed (nm/tick) — also grows the search area each tick.
+    pub drift_speed_nm_per_tick: f64,
+    /// Prevailing drift bearing (compass degrees) the liferaft is advected along.
+    pub drift_bearing_deg: f64,
 }
 
 impl Default for SarParams {
@@ -105,8 +125,33 @@ impl Default for SarParams {
             helicopter_min_datum_nm: 40.0,
             liferaft_survival_ticks: 96, // 24 h at 15 min/tick
             arrival_radius_nm: 1.0,
+            searchers: 1,
+            sweep_width_nm: 5.0,
+            initial_uncertainty_nm: 2.0,
+            drift_speed_nm_per_tick: 0.2, // ≈ 0.8 kn current
+            drift_bearing_deg: 45.0,
         }
     }
+}
+
+/// Per-tick Koopman random-search detection probability.
+///
+/// The datum uncertainty grows with the response latency: with initial radius
+/// `r0` and drift speed `u_d`, the search area after `elapsed_ticks` is
+/// `A = π(r0 + u_d·τ)²`. A searcher of sweep width `w` covering `v_s·Δt` per
+/// tick yields per-tick coverage `dC = n·w·v_s·Δt / A` and detection
+/// probability `1 − e^{−dC}` (Koopman; MASSIM). The longer the response is
+/// delayed, the larger `A` and the harder the detection — the quantitative
+/// link from response latency to survival.
+#[must_use]
+pub fn detection_prob_tick(p: &SarParams, searcher_speed_kn: f64, elapsed_ticks: u64) -> f64 {
+    #[allow(clippy::cast_precision_loss)]
+    let tau = elapsed_ticks as f64;
+    let radius = p.initial_uncertainty_nm + p.drift_speed_nm_per_tick * tau;
+    let area = (std::f64::consts::PI * radius * radius).max(1e-9);
+    let vs_nm = searcher_speed_kn * 0.25; // nm covered per tick
+    let coverage = f64::from(p.searchers) * p.sweep_width_nm * vs_nm / area;
+    1.0 - (-coverage).exp()
 }
 
 /// Select the rescue asset for a datum at `datum_distance_nm` from its base:
@@ -117,5 +162,37 @@ pub fn select_asset(datum_distance_nm: f64, p: &SarParams) -> RescueKind {
         RescueKind::Helicopter
     } else {
         RescueKind::Patrol
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detection_probability_is_bounded() {
+        let p = SarParams::default();
+        for elapsed in [0u64, 1, 10, 50, 200] {
+            let d = detection_prob_tick(&p, 25.0, elapsed);
+            assert!((0.0..=1.0).contains(&d), "detection prob out of range");
+        }
+    }
+
+    #[test]
+    fn detection_decays_as_response_is_delayed() {
+        // A growing datum (later response → larger search area) is harder to
+        // detect per tick: the latency → survival link.
+        let p = SarParams::default();
+        let early = detection_prob_tick(&p, 25.0, 1);
+        let late = detection_prob_tick(&p, 25.0, 100);
+        assert!(late < early, "later response must lower per-tick detection");
+    }
+
+    #[test]
+    fn faster_searcher_detects_better() {
+        let p = SarParams::default();
+        let patrol = detection_prob_tick(&p, p.patrol_speed_kn, 10);
+        let helo = detection_prob_tick(&p, p.helicopter_speed_kn, 10);
+        assert!(helo > patrol, "a faster searcher covers more area per tick");
     }
 }

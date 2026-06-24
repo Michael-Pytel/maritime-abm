@@ -1,4 +1,5 @@
 pub mod ais;
+pub mod ashrafi;
 pub mod comms;
 pub mod kpi;
 pub mod land;

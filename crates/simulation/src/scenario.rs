@@ -43,6 +43,10 @@ pub struct SimConfig {
     #[serde(default)]
     pub sar: crate::sar::SarParams,
 
+    /// Calendar month (1–12) driving Ashrafi seasonal SAR degradation.
+    #[serde(default = "default_sim_month")]
+    pub sim_month: u8,
+
     // --- port / voyage model ---
     pub port_dwell_min_ticks: u32,
     pub port_dwell_max_ticks: u32,
@@ -110,6 +114,12 @@ pub struct SimConfig {
     pub collision_trigger_field: f64,
 }
 
+/// Default calendar month for `SimConfig::sim_month` (July → Ashrafi Group A,
+/// the mildest SAR conditions, i.e. no seasonal speed penalty by default).
+fn default_sim_month() -> u8 {
+    7
+}
+
 impl Default for SimConfig {
     fn default() -> Self {
         let mut cfg = Self {
@@ -122,6 +132,7 @@ impl Default for SimConfig {
             collision_radius_nm: 0.15,
             simcol: crate::simcol::SimcolParams::default(),
             sar: crate::sar::SarParams::default(),
+            sim_month: default_sim_month(),
             port_dwell_min_ticks: 8,
             port_dwell_max_ticks: 48,
             initial_dwell_spread_ticks: 16,
