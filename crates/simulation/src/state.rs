@@ -198,6 +198,7 @@ impl SimState {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         });
     }
@@ -435,6 +436,84 @@ impl SimState {
         self.evac_since.retain(|id, _| alive_evac.contains(id));
     }
 
+    /// Mark vessels that should hold (anchor) in a port-approach queue.
+    ///
+    /// An active vessel within `port_approach_radius_nm` of a port holds if
+    /// another active vessel is *closer* to that port and within
+    /// `port_queue_gap_nm` — so a trailing ship waits behind a leader heading to
+    /// the same port instead of drawing up side-by-side and overlapping. The
+    /// flag is honoured by `VesselAgent::step` on the next tick. When a vessel
+    /// first joins a queue, the leader radios it to slow down and keep distance.
+    fn compute_port_queue(&mut self, tick: u64) {
+        let approach_r2 = self.config.port_approach_radius_nm.powi(2);
+        let gap2 = self.config.port_queue_gap_nm.powi(2);
+        let active: Vec<(usize, (f64, f64))> = self
+            .vessels
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.state.is_active())
+            .map(|(i, v)| (i, v.position))
+            .collect();
+
+        // For each holding follower, the nearest leader (vessel index) it queues behind.
+        let mut leader_of: Vec<Option<usize>> = vec![None; active.len()];
+        for (a, &(_, pos_a)) in active.iter().enumerate() {
+            // Nearest port within the approach radius (the one being approached).
+            let Some(port) = self
+                .ports
+                .iter()
+                .map(|p| p.position)
+                .filter(|&pp| dist2(pos_a, pp) <= approach_r2)
+                .min_by(|x, y| {
+                    dist2(pos_a, *x)
+                        .partial_cmp(&dist2(pos_a, *y))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            else {
+                continue;
+            };
+            let d_a = dist2(pos_a, port);
+            // The leader is the nearest vessel ahead (closer to the port, within gap).
+            let mut best: Option<(usize, f64)> = None;
+            for (b, &(idx_b, pos_b)) in active.iter().enumerate() {
+                if a != b && dist2(pos_b, port) < d_a && dist2(pos_a, pos_b) < gap2 {
+                    let gap = dist2(pos_a, pos_b);
+                    if best.is_none_or(|(_, g)| gap < g) {
+                        best = Some((idx_b, gap));
+                    }
+                }
+            }
+            leader_of[a] = best.map(|(idx_b, _)| idx_b);
+        }
+
+        // Apply the hold flags; collect newly-formed queue joins for messaging.
+        let mut new_joins: Vec<(usize, usize)> = Vec::new(); // (leader_idx, follower_idx)
+        for (a, &(i, _)) in active.iter().enumerate() {
+            let hold = leader_of[a].is_some();
+            if hold && !self.vessels[i].anchored {
+                if let Some(leader_idx) = leader_of[a] {
+                    new_joins.push((leader_idx, i));
+                }
+            }
+            self.vessels[i].anchored = hold;
+        }
+
+        // The leader radios each newly-queued follower to slow and keep distance.
+        for (leader_idx, follower_idx) in new_joins {
+            let msg = VesselMsg {
+                tick,
+                from_id: self.vessels[leader_idx].id,
+                from_name: self.vessels[leader_idx].name.clone(),
+                to_id: self.vessels[follower_idx].id,
+                to_name: self.vessels[follower_idx].name.clone(),
+                kind: MsgKind::KeepDistance {
+                    speed_kn: self.vessels[leader_idx].speed_kn,
+                },
+            };
+            self.push_msg(msg);
+        }
+    }
+
     /// Remove vessels in a terminal SAR state (`Rescued` / `Lost`), tallying the
     /// cumulative counters. The fleet top-up in `post_tick` respawns
     /// replacements to maintain the configured fleet size.
@@ -607,6 +686,10 @@ impl SimState {
             v.avoidance_cooldown = v.avoidance_cooldown.saturating_sub(1);
         }
 
+        // Port-approach queueing: hold trailing vessels behind a leader bound
+        // for the same port so they queue instead of bunching side-by-side.
+        self.compute_port_queue(tick);
+
         // Hard-collision detection + SIMCOL consequence evaluation.
         //
         // A collision is counted once per *encounter*: only when a pair first
@@ -630,7 +713,11 @@ impl SimState {
 
                 let key = {
                     let (a, b) = (self.vessels[i].id, self.vessels[j].id);
-                    if a < b { (a, b) } else { (b, a) }
+                    if a < b {
+                        (a, b)
+                    } else {
+                        (b, a)
+                    }
                 };
                 contacts_now.insert(key);
                 // Already in contact last tick → ongoing overlap, not a new event.
@@ -747,6 +834,7 @@ impl SimState {
                     "n_crew": v.n_crew,
                     "dock_until_tick": v.dock_until_tick,
                     "avoiding": v.avoiding,
+                    "anchored": v.anchored,
                 })
             })
             .collect();
@@ -844,6 +932,7 @@ impl SimState {
                 "active_count": self.vessels.iter().filter(|v| v.state == VesselState::Active).count(),
                 "docked_count": self.vessels.iter().filter(|v| v.state == VesselState::Docked).count(),
                 "avoiding_count": self.vessels.iter().filter(|v| v.avoiding).count(),
+                "anchored_count": self.vessels.iter().filter(|v| v.anchored).count(),
                 "evac_count": self.vessels.iter().filter(|v| v.state == VesselState::Evac).count(),
                 "rescued_count": self.vessels.iter().filter(|v| v.state == VesselState::Rescued).count(),
                 "lost_count": self.vessels.iter().filter(|v| v.state == VesselState::Lost).count(),
@@ -1348,6 +1437,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         };
         state.vessels.push(mk(1, VesselState::Lost));
@@ -1391,6 +1481,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         };
         state.vessels.push(mk(1, 90.0)); // heading east
@@ -1419,6 +1510,52 @@ mod tests {
             !state.rescue_agents.is_empty(),
             "a rescue asset is dispatched to the datum"
         );
+    }
+
+    #[test]
+    fn test_port_queue_holds_follower_and_radios() {
+        let cfg = test_cfg();
+        let mut state = SimState::new(cfg).unwrap();
+        assert!(!state.ports.is_empty());
+        let port = state.ports[0].position;
+        let mk = |id: u64, pos: (f64, f64)| VesselAgent {
+            id,
+            name: format!("V{id}"),
+            vessel_type: "cargo".into(),
+            route: vec![port, (port.0 + 50.0, port.1)],
+            route_index: 0,
+            route_direction: 1,
+            position: pos,
+            last_valid_position: pos,
+            heading_deg: 270.0,
+            speed_kn: 12.0,
+            state: VesselState::Active,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            anchored: false,
+            fatigue: 0.0,
+        };
+        // Leader 0.5 nm from port; follower 0.3 nm behind it (both within the
+        // 3 nm approach and the 0.5 nm queue gap).
+        let leader = mk(1, (port.0 + 0.5, port.1));
+        let follower = mk(2, (port.0 + 0.8, port.1));
+        state.vessels.push(leader);
+        state.vessels.push(follower);
+
+        state.compute_port_queue(0);
+
+        assert!(!state.vessels[0].anchored, "leader keeps going");
+        assert!(state.vessels[1].anchored, "follower holds in the queue");
+        let radioed = state.comms_log.iter().any(|m| {
+            matches!(m.kind, MsgKind::KeepDistance { .. }) && m.from_id == 1 && m.to_id == 2
+        });
+        assert!(radioed, "leader radios the follower to keep distance");
     }
 
     #[test]
@@ -1451,6 +1588,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         });
 
@@ -1504,6 +1642,7 @@ mod tests {
                 avoiding_vessel_id: None,
                 avoided_vessel_id: None,
                 avoiding: false,
+                anchored: false,
                 fatigue: 0.0,
             });
             // Run until the asset reaches the datum (rescue count recorded).
@@ -1557,6 +1696,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         });
 
@@ -1606,6 +1746,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         };
 

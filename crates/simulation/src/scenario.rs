@@ -35,6 +35,13 @@ pub struct SimConfig {
     // --- physics ---
     pub collision_radius_nm: f64,
 
+    // --- port-approach queueing (anti-funnel) ---
+    /// Distance (nm) from a port within which approach-queueing applies.
+    pub port_approach_radius_nm: f64,
+    /// Minimum separation (nm) a vessel keeps behind a leader heading to the
+    /// same port; closer than this it holds (anchors) until the gap opens.
+    pub port_queue_gap_nm: f64,
+
     /// SIMCOL collision-consequence surrogate parameters.
     #[serde(default)]
     pub simcol: crate::simcol::SimcolParams,
@@ -129,7 +136,11 @@ impl Default for SimConfig {
             n_vessels: 20,
             n_crew_per_vessel: 10,
             n_ticks: 2880,
-            collision_radius_nm: 0.15,
+            // Hull-contact radius: a hard collision triggers at 2·r = 0.10 nm
+            // (~185 m, about one ship-length sum) rather than the old 0.30 nm.
+            collision_radius_nm: 0.05,
+            port_approach_radius_nm: 3.0,
+            port_queue_gap_nm: 0.5,
             simcol: crate::simcol::SimcolParams::default(),
             sar: crate::sar::SarParams::default(),
             sim_month: default_sim_month(),

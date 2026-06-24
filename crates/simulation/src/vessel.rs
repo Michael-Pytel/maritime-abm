@@ -112,6 +112,12 @@ pub struct VesselAgent {
     /// in the WebSocket snapshot so the frontend can highlight the ship.
     pub avoiding: bool,
 
+    /// `true` while the vessel is holding (anchored) in a port-approach queue
+    /// behind a leading vessel.  Set each tick by the queueing step; honoured by
+    /// `step` to skip navigation.  Included in the snapshot for the frontend.
+    #[serde(default)]
+    pub anchored: bool,
+
     // ── Crew fatigue ──────────────────────────────────────────────────────
     /// Crew fatigue level ∈ [0, 1].
     /// 0 = fully rested; 1 = exhausted.
@@ -181,6 +187,10 @@ impl VesselAgent {
                 }
             }
             VesselState::Active => {
+                // Holding in a port-approach queue: stay put this tick.
+                if self.anchored {
+                    return;
+                }
                 self.navigate(tick, config, land_mask, ports);
             }
             // In the SAR chain the vessel does not navigate; the rescue
@@ -466,6 +476,7 @@ mod tests {
             avoiding_vessel_id: None,
             avoided_vessel_id: None,
             avoiding: false,
+            anchored: false,
             fatigue: 0.0,
         }
     }

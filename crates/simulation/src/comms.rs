@@ -43,6 +43,9 @@ pub enum MsgKind {
     MaintainingCourse,
     /// Give-way vessel reports it has completed the avoidance manoeuvre.
     ResumeRoute,
+    /// Lead vessel (closer to the port) asks the trailing vessel to slow to its
+    /// speed and keep distance in a shared port approach.
+    KeepDistance { speed_kn: f64 },
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
