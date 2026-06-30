@@ -1,7 +1,7 @@
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::Json,
+    extract::{Path, Query, State},
+    http::{header, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -127,6 +127,11 @@ pub struct BatchRequest {
     pub methods: Option<Vec<String>>,
     /// Directory for tick logs, manifests, and summary CSV. Defaults to "outputs".
     pub output_dir: Option<String>,
+    /// Partial `SimConfig` override (the swept hyperparameters) applied to every
+    /// run in this batch — any field, including nested `simcol`/`sar`/`forcefield`.
+    /// Deep-merged over the scenario defaults; experiment identity
+    /// (scenario/method/seed) is always re-pinned and cannot be overridden.
+    pub config_override: Option<Value>,
 }
 
 pub async fn post_batch(
@@ -177,6 +182,13 @@ pub async fn post_batch(
 
     let batch_id = Uuid::new_v4().to_string();
 
+    // Normalise the override to an object and auto-derive the sweep-point label.
+    let config_override = match req.config_override {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => json!({}),
+    };
+    let label = crate::db::derive_label(&config_override);
+
     let batch = spawn_batch(
         n_seeds,
         n_ticks,
@@ -186,13 +198,15 @@ pub async fn post_batch(
         scenarios,
         methods,
         batch_id.clone(),
+        config_override,
+        label.clone(),
     );
 
     let total = batch.lock().map_or(0, |s| s.total);
     let mut lock = app.batch.lock().await;
     *lock = Some(batch);
 
-    Json(json!({ "batch_id": batch_id, "status": "started", "total": total }))
+    Json(json!({ "batch_id": batch_id, "status": "started", "total": total, "label": label }))
 }
 
 pub async fn get_batch_status(State(app): State<Arc<AppState>>) -> Json<Value> {
@@ -282,10 +296,23 @@ fn load_results_from_disk() -> Vec<crate::stats::BatchResult> {
     results
 }
 
-/// Returns results from the in-memory batch if it has data, otherwise from disk.
+/// Resolves batch results, scoped to a single batch so runs never mix.
+///
+/// Prefers the `SQLite` store (queried by the active batch's id, or the most
+/// recent batch after a restart). Falls back to the in-memory vec and then to
+/// legacy on-disk manifests for batches produced before the DB existed.
 fn resolve_results(
     batch_lock: Option<&Arc<std::sync::Mutex<BatchState>>>,
 ) -> Vec<crate::stats::BatchResult> {
+    let batch_id = batch_lock
+        .and_then(|b| b.lock().ok().map(|s| s.batch_id.clone()))
+        .filter(|id| !id.is_empty());
+
+    let from_db = crate::db::results(batch_id.as_deref());
+    if !from_db.is_empty() {
+        return from_db;
+    }
+
     if let Some(batch) = batch_lock {
         if let Ok(state) = batch.lock() {
             if !state.results.is_empty() {
@@ -294,6 +321,52 @@ fn resolve_results(
         }
     }
     load_results_from_disk()
+}
+
+// ── Parquet export (for offline analysis) ─────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ExportQuery {
+    /// Explicit batch to export; defaults to the active/most-recent batch.
+    pub batch_id: Option<String>,
+    /// Export every batch (the whole hyperparameter sweep) as one table.
+    pub all: Option<bool>,
+}
+
+/// Streams KPI rows as a Parquet file for downstream analysis
+/// (pandas / polars / R). `all=true` exports the whole sweep; otherwise the
+/// requested `batch_id`, else the active batch, else the most recent one.
+pub async fn get_batch_export(
+    State(app): State<Arc<AppState>>,
+    Query(q): Query<ExportQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let all = q.all.unwrap_or(false);
+    let batch_id = q.batch_id.filter(|id| !id.is_empty()).or_else(|| {
+        // No explicit id: fall back to the active batch if one is loaded.
+        app.batch
+            .try_lock()
+            .ok()
+            .and_then(|lock| {
+                lock.as_ref()
+                    .and_then(|b| b.lock().ok().map(|s| s.batch_id.clone()))
+            })
+            .filter(|id| !id.is_empty())
+    });
+
+    match crate::db::export_parquet(batch_id.as_deref(), all) {
+        Ok((filename, bytes)) => Ok((
+            [
+                (header::CONTENT_TYPE, "application/vnd.apache.parquet".to_string()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{filename}\""),
+                ),
+            ],
+            bytes,
+        )
+            .into_response()),
+        Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
+    }
 }
 
 // ── AIS path data ────────────────────────────────────────────────────────────

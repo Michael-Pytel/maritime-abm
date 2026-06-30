@@ -1,3 +1,4 @@
+mod db;
 mod routes;
 mod runner;
 mod stats;
@@ -38,6 +39,7 @@ async fn main() {
         .route("/sim/batch/results", get(routes::get_batch_results))
         .route("/sim/batch/stats", get(routes::get_batch_stats))
         .route("/sim/batch/hypothesis", get(routes::get_batch_hypothesis))
+        .route("/sim/batch/export.parquet", get(routes::get_batch_export))
         .route("/sim/ais-paths", get(routes::get_ais_paths))
         .route("/sim/runs", get(routes::get_runs))
         .route("/sim/runs/{run_id}/log", get(routes::get_run_log))
