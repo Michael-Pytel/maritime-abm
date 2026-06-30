@@ -36,10 +36,21 @@ export default function BatchPanel() {
   const [results, setResults] = useState<BatchResult[]>([]);
   const [posting, setPosting] = useState(false);
   const [selectedKpi, setSelectedKpi] = useState<keyof KpiSnapshot>("survival_ratio");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [overrideText, setOverrideText] = useState("");
+  const [activeLabel, setActiveLabel] = useState<string>("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isRunning = status?.running === true;
-  const disabled  = posting || isRunning;
+
+  // Parse the parameter-override JSON; surface an error but never throw.
+  const override = parseOverride(overrideText);
+  const overrideErr = overrideText.trim() && override === null
+    ? "Invalid JSON object"
+    : null;
+  const labelPreview = override ? deriveLabel(override) : "default";
+
+  const disabled  = posting || isRunning || overrideErr !== null;
 
   function toggle<T>(arr: T[], val: T): T[] {
     return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
@@ -50,10 +61,11 @@ export default function BatchPanel() {
   }
 
   async function startBatch() {
+    if (overrideErr) return;
     setPosting(true);
     setResults([]);
     setStatus(null);
-    await fetch(`${API}/sim/batch`, {
+    const resp = await fetch(`${API}/sim/batch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -61,8 +73,11 @@ export default function BatchPanel() {
         n_ticks: nTicks,
         scenarios: selScenarios,
         methods: selMethods,
+        // Only send an override when one was supplied (empty → scenario defaults).
+        ...(override && Object.keys(override).length ? { config_override: override } : {}),
       }),
-    });
+    }).then(r => r.json() as Promise<{ label?: string }>).catch(() => ({} as { label?: string }));
+    setActiveLabel(resp.label ?? labelPreview);
     setPosting(false);
     stopPoll();
     pollRef.current = setInterval(async () => {
@@ -137,6 +152,57 @@ export default function BatchPanel() {
         </button>
       </div>
 
+      {/* Advanced: parameter override (hyperparameter sweep) */}
+      <div>
+        <button
+          onClick={() => setShowAdvanced(v => !v)}
+          style={{
+            background: "none", border: "none", cursor: "pointer", padding: 0,
+            color: "#64748b", fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: "0.08em", display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          {showAdvanced ? "▾" : "▸"} Advanced — parameter override (sweep)
+        </button>
+        {showAdvanced && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, lineHeight: 1.5 }}>
+              Partial <code style={{ color: "#94a3b8" }}>SimConfig</code> as JSON, applied to every run in
+              this batch (deep-merged over scenario defaults). Run repeatedly with different values to
+              build a sweep — results accumulate; playback keeps only the latest.
+            </div>
+            <textarea
+              value={overrideText}
+              onChange={e => setOverrideText(e.target.value)}
+              disabled={disabled && !overrideErr}
+              spellCheck={false}
+              placeholder={'{ "collision_warn_cpa_nm": 0.5, "forcefield": { "enabled": true } }'}
+              rows={4}
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "8px 10px",
+                background: "#0a0f1a", color: "#e2e8f0",
+                border: `1px solid ${overrideErr ? "#b91c1c" : "#334155"}`,
+                borderRadius: 6, fontSize: 12, fontFamily: "ui-monospace, monospace",
+                outline: "none", resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11 }}>
+              <span style={{ color: overrideErr ? "#f87171" : "#475569" }}>
+                {overrideErr ?? `label: ${labelPreview}`}
+              </span>
+              {overrideText.trim() && (
+                <button
+                  onClick={() => setOverrideText("")}
+                  style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 11 }}
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Progress */}
       {status && (
         <div style={{ background: "#0c1220", borderRadius: 10, padding: "14px 16px", border: "1px solid #1e293b" }}>
@@ -165,6 +231,24 @@ export default function BatchPanel() {
               borderRadius: 6,
             }} />
           </div>
+        </div>
+      )}
+
+      {/* Export toolbar */}
+      {results.length > 0 && !isRunning && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {activeLabel && (
+            <span style={{ fontSize: 11, color: "#64748b" }}>
+              sweep point: <code style={{ color: "#94a3b8" }}>{activeLabel}</code>
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button onClick={() => download(`${API}/sim/batch/export.parquet`)} style={exportBtn}>
+            ⬇ Export this batch (.parquet)
+          </button>
+          <button onClick={() => download(`${API}/sim/batch/export.parquet?all=true`)} style={exportBtn}>
+            ⬇ Export whole sweep (.parquet)
+          </button>
         </div>
       )}
 
@@ -284,6 +368,47 @@ export default function BatchPanel() {
       )}
     </div>
   );
+}
+
+/** Parses the override textarea into a plain object, or null if invalid/empty. */
+function parseOverride(text: string): Record<string, unknown> | null {
+  const t = text.trim();
+  if (!t) return {};
+  try {
+    const v: unknown = JSON.parse(t);
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return v as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Mirrors the server's `derive_label`: flattens nested keys to `a.b=v_c=w`. */
+function deriveLabel(obj: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const walk = (prefix: string, v: unknown) => {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [k, val] of Object.entries(v)) {
+        walk(prefix ? `${prefix}.${k}` : k, val);
+      }
+    } else {
+      parts.push(`${prefix}=${typeof v === "string" ? v : JSON.stringify(v)}`);
+    }
+  };
+  walk("", obj);
+  return parts.length ? parts.join("_").slice(0, 120) : "default";
+}
+
+/** Triggers a browser download; the endpoint sets Content-Disposition. */
+function download(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function aggregateByMethod(results: BatchResult[], kpi: keyof KpiSnapshot) {
@@ -407,3 +532,14 @@ const th: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 const stTd: React.CSSProperties = { padding: "6px 8px", fontSize: 11 };
+
+const exportBtn: React.CSSProperties = {
+  padding: "6px 12px",
+  background: "#0c1220",
+  color: "#94a3b8",
+  border: "1px solid #334155",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 11,
+  fontWeight: 600,
+};
