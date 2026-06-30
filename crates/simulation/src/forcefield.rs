@@ -236,8 +236,24 @@ mod tests {
     #[test]
     fn repulsion_decays_with_distance_and_scales_with_k() {
         let p = params();
-        let near = resultant_force((0.0, 0.0), 0.0, &[Obstacle { position: (0.0, 1.0), heading_deg: 180.0 }], &p);
-        let far = resultant_force((0.0, 0.0), 0.0, &[Obstacle { position: (0.0, 4.0), heading_deg: 180.0 }], &p);
+        let near = resultant_force(
+            (0.0, 0.0),
+            0.0,
+            &[Obstacle {
+                position: (0.0, 1.0),
+                heading_deg: 180.0,
+            }],
+            &p,
+        );
+        let far = resultant_force(
+            (0.0, 0.0),
+            0.0,
+            &[Obstacle {
+                position: (0.0, 4.0),
+                heading_deg: 180.0,
+            }],
+            &p,
+        );
         // Both obstacles are dead ahead (north); force points south (−y).
         assert!(near.1 < 0.0 && far.1 < 0.0);
         assert!(near.1.abs() > far.1.abs(), "closer obstacle repels harder");
@@ -245,19 +261,50 @@ mod tests {
         // Doubling k_obst doubles the magnitude.
         let mut p2 = p;
         p2.k_obst *= 2.0;
-        let near2 = resultant_force((0.0, 0.0), 0.0, &[Obstacle { position: (0.0, 1.0), heading_deg: 180.0 }], &p2);
+        let near2 = resultant_force(
+            (0.0, 0.0),
+            0.0,
+            &[Obstacle {
+                position: (0.0, 1.0),
+                heading_deg: 180.0,
+            }],
+            &p2,
+        );
         assert!((near2.1 - 2.0 * near.1).abs() < 1e-9);
     }
 
     #[test]
     fn obstacle_beyond_activation_is_ignored() {
         let p = params(); // overtaking activation = 2 nm
-        // Same-heading (overtaking) obstacle 3 nm ahead → beyond 2 nm reach.
-        let f = resultant_force((0.0, 0.0), 0.0, &[Obstacle { position: (0.0, 3.0), heading_deg: 0.0 }], &p);
-        assert_eq!(f, (0.0, 0.0), "overtaking obstacle past d_s exerts no force");
+                          // Same-heading (overtaking) obstacle 3 nm ahead → beyond 2 nm reach.
+        let f = resultant_force(
+            (0.0, 0.0),
+            0.0,
+            &[Obstacle {
+                position: (0.0, 3.0),
+                heading_deg: 0.0,
+            }],
+            &p,
+        );
+        assert_eq!(
+            f,
+            (0.0, 0.0),
+            "overtaking obstacle past d_s exerts no force"
+        );
         // A head-on obstacle at the same range is within the 8 nm head-on reach.
-        let f2 = resultant_force((0.0, 0.0), 0.0, &[Obstacle { position: (0.0, 3.0), heading_deg: 180.0 }], &p);
-        assert!(f2.1 < 0.0, "head-on obstacle within its longer reach repels");
+        let f2 = resultant_force(
+            (0.0, 0.0),
+            0.0,
+            &[Obstacle {
+                position: (0.0, 3.0),
+                heading_deg: 180.0,
+            }],
+            &p,
+        );
+        assert!(
+            f2.1 < 0.0,
+            "head-on obstacle within its longer reach repels"
+        );
     }
 
     #[test]
@@ -266,7 +313,10 @@ mod tests {
         // The encounter is symmetric (no lateral force), so the starboard bias
         // must turn the subject to starboard (heading increases toward east).
         let p = params();
-        let obstacles = [Obstacle { position: (0.0, 5.0), heading_deg: 180.0 }];
+        let obstacles = [Obstacle {
+            position: (0.0, 5.0),
+            heading_deg: 180.0,
+        }];
         let r = steer((0.0, 0.0), 0.0, 0.0, &obstacles, 1.0, &p);
         assert!(r.yaw > 0.0, "yaw is to starboard, got {}", r.yaw);
         assert!(
@@ -279,7 +329,10 @@ mod tests {
     #[test]
     fn fatigue_weakens_the_avoidance() {
         let p = params();
-        let obstacles = [Obstacle { position: (0.0, 5.0), heading_deg: 180.0 }];
+        let obstacles = [Obstacle {
+            position: (0.0, 5.0),
+            heading_deg: 180.0,
+        }];
         let fresh = steer((0.0, 0.0), 0.0, 0.0, &obstacles, 1.0, &p);
         let tired = steer((0.0, 0.0), 0.0, 0.0, &obstacles, 0.3, &p);
         assert!(
@@ -298,7 +351,10 @@ mod tests {
         let y1 = nomoto_step(0.0, 10.0, &p);
         let y2 = nomoto_step(y1, 10.0, &p);
         assert!(y1 > 0.0 && y2 > y1, "yaw builds up over ticks");
-        assert!(y2 < target + 1e-9, "never overshoots the steady-state turn rate");
+        assert!(
+            y2 < target + 1e-9,
+            "never overshoots the steady-state turn rate"
+        );
     }
 
     #[test]
@@ -314,6 +370,10 @@ mod tests {
         // A residual yaw with no obstacles relaxes back toward zero.
         let p = params();
         let r = steer((0.0, 0.0), 0.0, 4.0, &[], 1.0, &p);
-        assert!(r.yaw < 4.0 && r.yaw > 0.0, "yaw relaxes toward zero, got {}", r.yaw);
+        assert!(
+            r.yaw < 4.0 && r.yaw > 0.0,
+            "yaw relaxes toward zero, got {}",
+            r.yaw
+        );
     }
 }
