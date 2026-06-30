@@ -356,7 +356,10 @@ pub async fn get_batch_export(
     match crate::db::export_parquet(batch_id.as_deref(), all) {
         Ok((filename, bytes)) => Ok((
             [
-                (header::CONTENT_TYPE, "application/vnd.apache.parquet".to_string()),
+                (
+                    header::CONTENT_TYPE,
+                    "application/vnd.apache.parquet".to_string(),
+                ),
                 (
                     header::CONTENT_DISPOSITION,
                     format!("attachment; filename=\"{filename}\""),

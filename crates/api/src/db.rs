@@ -84,8 +84,14 @@ pub fn open(path: &str) -> Result<Connection> {
     // Idempotent migration for databases created before sweep columns existed.
     // SQLite has no `ADD COLUMN IF NOT EXISTS`; a duplicate-column error is the
     // expected no-op signal, so it is intentionally ignored.
-    let _ = conn.execute("ALTER TABLE runs ADD COLUMN label TEXT NOT NULL DEFAULT ''", []);
-    let _ = conn.execute("ALTER TABLE runs ADD COLUMN params TEXT NOT NULL DEFAULT '{}'", []);
+    let _ = conn.execute(
+        "ALTER TABLE runs ADD COLUMN label TEXT NOT NULL DEFAULT ''",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE runs ADD COLUMN params TEXT NOT NULL DEFAULT '{}'",
+        [],
+    );
     Ok(conn)
 }
 
@@ -143,15 +149,16 @@ fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<RunRecord> {
             evac_activation_rate: row.get("evac_activation_rate")?,
             mean_p_prep: row.get("mean_p_prep")?,
         },
-        log_path: row.get::<_, Option<String>>("log_path")?.unwrap_or_default(),
+        log_path: row
+            .get::<_, Option<String>>("log_path")?
+            .unwrap_or_default(),
     })
 }
 
 /// All runs for one batch, ordered for stable output.
 pub fn records_for_batch(conn: &Connection, batch_id: &str) -> Result<Vec<RunRecord>> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM runs WHERE batch_id = ?1 ORDER BY scenario, method, seed",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT * FROM runs WHERE batch_id = ?1 ORDER BY scenario, method, seed")?;
     let rows = stmt
         .query_map([batch_id], row_to_record)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -161,9 +168,8 @@ pub fn records_for_batch(conn: &Connection, batch_id: &str) -> Result<Vec<RunRec
 /// Every run across all batches — the full hyperparameter-sweep table.
 /// Ordered by completion so successive sweep points read in run order.
 pub fn records_all(conn: &Connection) -> Result<Vec<RunRecord>> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM runs ORDER BY completed_at, batch_id, scenario, method, seed",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT * FROM runs ORDER BY completed_at, batch_id, scenario, method, seed")?;
     let rows = stmt
         .query_map([], row_to_record)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -217,7 +223,10 @@ pub fn export_parquet(batch_id: Option<&str>, all: bool) -> Result<(String, Vec<
             None => latest_batch_id(&conn)?
                 .ok_or_else(|| anyhow::anyhow!("no batches available to export"))?,
         };
-        (format!("batch_{id}.parquet"), records_for_batch(&conn, &id)?)
+        (
+            format!("batch_{id}.parquet"),
+            records_for_batch(&conn, &id)?,
+        )
     };
     if recs.is_empty() {
         anyhow::bail!("no runs found to export");
@@ -255,21 +264,49 @@ fn records_to_parquet(recs: &[RunRecord]) -> Result<Vec<u8>> {
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![
-            Arc::new(StringArray::from_iter_values(recs.iter().map(|r| r.batch_id.as_str()))),
-            Arc::new(StringArray::from_iter_values(recs.iter().map(|r| r.label.as_str()))),
-            Arc::new(StringArray::from_iter_values(recs.iter().map(|r| r.params.as_str()))),
-            Arc::new(StringArray::from_iter_values(recs.iter().map(|r| r.scenario.as_str()))),
-            Arc::new(StringArray::from_iter_values(recs.iter().map(|r| r.method.as_str()))),
+            Arc::new(StringArray::from_iter_values(
+                recs.iter().map(|r| r.batch_id.as_str()),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                recs.iter().map(|r| r.label.as_str()),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                recs.iter().map(|r| r.params.as_str()),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                recs.iter().map(|r| r.scenario.as_str()),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                recs.iter().map(|r| r.method.as_str()),
+            )),
             Arc::new(UInt64Array::from_iter_values(recs.iter().map(|r| r.seed))),
-            Arc::new(UInt32Array::from_iter_values(recs.iter().map(|r| r.n_ticks))),
-            Arc::new(UInt32Array::from_iter_values(recs.iter().map(|r| r.n_vessels))),
-            Arc::new(UInt64Array::from_iter_values(recs.iter().map(|r| r.completed_at))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.fatal_per_1k_hrs))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.collision_per_1k_hrs))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.survival_ratio))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.avg_tta_hours))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.evac_activation_rate))),
-            Arc::new(Float64Array::from_iter_values(recs.iter().map(|r| r.kpi.mean_p_prep))),
+            Arc::new(UInt32Array::from_iter_values(
+                recs.iter().map(|r| r.n_ticks),
+            )),
+            Arc::new(UInt32Array::from_iter_values(
+                recs.iter().map(|r| r.n_vessels),
+            )),
+            Arc::new(UInt64Array::from_iter_values(
+                recs.iter().map(|r| r.completed_at),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.fatal_per_1k_hrs),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.collision_per_1k_hrs),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.survival_ratio),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.avg_tta_hours),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.evac_activation_rate),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.kpi.mean_p_prep),
+            )),
         ],
     )?;
 

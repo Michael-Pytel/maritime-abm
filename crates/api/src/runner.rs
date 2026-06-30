@@ -121,7 +121,9 @@ pub fn spawn_batch(
         }
 
         let csv_mutex: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
-        let batch_id = batch2.lock().map_or_else(|_| String::new(), |s| s.batch_id.clone());
+        let batch_id = batch2
+            .lock()
+            .map_or_else(|_| String::new(), |s| s.batch_id.clone());
         let override_obj = config_override.as_object().filter(|o| !o.is_empty());
 
         runs.into_par_iter().for_each(|(scenario, method, seed)| {
