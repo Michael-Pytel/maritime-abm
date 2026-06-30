@@ -18,9 +18,13 @@
 \author[affiliation={1}]{Micha\l}{Pytel}
 \author[affiliation={1}]{Pawe\l}{Pozorski}
 
-\address{$^1$ Warsaw University of Technology, Poland}
+\address{
+    $^1$ Warsaw University of Technology, Poland
+}
 
-\email{\{michal.pytel2, pawel.pozorski\}.stud@pw.edu.pl}
+\email{
+    \{michal.pytel2, pawel.pozorski\}@pw.edu.pl
+}
 
 \keywords{maritime safety, multi-agent systems, agent-based modelling,
 collision avoidance, human factors, search and rescue}
@@ -102,7 +106,7 @@ The central thesis is: \emph{coupling crew-fatigue dynamics to the reliability o
 \begin{description}
     \item[Experimental conditions.] All experiments compare three methods, implemented as configuration switches over a single agent codebase:
         \begin{description}[leftmargin=2.2em, labelindent=0pt]
-            \item[Baseline~A (Classical)] represents current weather-unaware practice: vessels follow COLREGs give-way with idealised (perfect) VHF communication, no weather-induced slowdown, and an unmanaged fatigue build-up.
+            \item[Baseline~A (Classical)] represents current weather-unaware practice: vessels follow COLREGs give-way with nominal fair-weather VHF, no weather-induced slowdown, and an unmanaged fatigue build-up. Heavy-weather comms degradation is environmental (Section~\ref{sec:avoidance}) and therefore still applies to Baseline~A inside the storm corridor --- it has no privileged radio; what it lacks is the \emph{behavioural} mitigation (speed reduction, managed fatigue) the other methods apply.
             \item[Baseline~B (Shore Rest Alerts)] adds weather-aware speed reduction and shore-issued rest advisories that slow fatigue accumulation, but no further mitigation.
             \item[Proposed System] adds smart watch scheduling (lowest fatigue build-rate) on top of the weather-aware mitigations of Baseline~B. Performance is measured using six KPIs defined in Table~\ref{tab:kpis}.
         \end{description}
@@ -512,7 +516,7 @@ The casualties cast into the water by a struck-but-afloat vessel (Eq.~\ref{eq:ov
 
 The three conditions of Section~\ref{sec:goal} are realised as configuration switches over one agent codebase:
 \begin{itemize}[leftmargin=1.2em, itemsep=2pt]
-    \item \textbf{Baseline~A (Classical):} weather-unaware; idealised VHF ($q \equiv 1$); no weather-induced slowdown; unmanaged fatigue ($m=1.00$); collision-consequence multiplier highest.
+    \item \textbf{Baseline~A (Classical):} weather-unaware; nominal fair-weather VHF but the same environmental storm-comms degradation as every method (no privileged radio); no weather-induced slowdown; unmanaged fatigue ($m=1.00$); collision-consequence multiplier highest.
     \item \textbf{Baseline~B (Shore Rest Alerts):} weather-aware slowdown (Section~\ref{sec:speed}); reduced fatigue build-rate ($m=0.82$); weather/storm-gated comms.
     \item \textbf{Proposed System:} smart watch scheduling ($m=0.65$) plus all Baseline~B mitigations.
 \end{itemize}
@@ -537,10 +541,10 @@ Table~\ref{tab:scenarios} summarises the four scenarios; each runs 30 independen
         moving storm zone; comms rate as low as 0.08 inside. &
         25 & H1, H3 \\[4pt]
         3 --- Blind Shore &
-        reduced fleet; degraded coordination away from dense lanes. &
+        degraded coordination away from dense lanes: fleet-wide comms reliability $0.55$ and a reduced avoidance berth. &
         25 & H1 \\[4pt]
         4 --- Deep Water Rescue &
-        sparse fleet; long rescue transits stress the SAR chain. &
+        sparse fleet far offshore: slowed SAR assets ($55/16$\,kn) and longer mobilisation lengthen every rescue transit, stressing the SAR chain. &
         15 & H2 \\
         \bottomrule
     \end{tabularx}
