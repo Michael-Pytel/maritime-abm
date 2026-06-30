@@ -232,10 +232,24 @@ impl SimConfig {
                 ];
             }
             Scenario::BlindShore => {
+                // Coordination is degraded everywhere, not just inside a storm:
+                // away from dense, well-covered shipping lanes the shore VHF /
+                // AIS picture is patchy, so warning exchanges frequently fail.
                 cfg.n_vessels = 25;
+                // Fleet-wide baseline comms reliability (no storm zone here).
+                cfg.comms_success_rate = 0.55;
+                // Degraded manoeuvring confidence → tighter avoidance berth.
+                cfg.avoidance_offset_nm = 3.0;
             }
             Scenario::DeepWaterRescue => {
+                // A sparse fleet operating far offshore: the nearest SAR base is
+                // distant, so every rescue is a long transit. We model the long
+                // transit by slowing the assets and lengthening mobilisation,
+                // which stresses the SAR chain against the fixed survival window.
                 cfg.n_vessels = 15;
+                cfg.sar.mobilisation_delay_ticks = 4; // distant readiness, was 2
+                cfg.sar.helicopter_speed_kn = 55.0; // long ferry leg, was 80
+                cfg.sar.patrol_speed_kn = 16.0; // far cutter station, was 25
             }
         }
 
@@ -244,16 +258,22 @@ impl SimConfig {
         // scenario-specific weather parameters.
         match method {
             Method::BaselineA => {
-                // Classical COLREGs baseline: vessels follow COLREGS deterministically
-                // with no weather awareness whatsoever.
+                // Classical COLREGs baseline: vessels follow COLREGS
+                // deterministically with no weather *awareness* and therefore no
+                // weather *mitigation*.
                 //
-                // The storm zone still exists on the map as a geographic feature,
-                // but vessels have no knowledge of it:
-                //   • Collision-avoidance comms are not degraded (VHF always gets
-                //     through — "perfect radio" assumption of classical COLREGs).
-                //   • No hazard-gated speed reduction (no W field visible to crew).
-                //   • comms_success_rate stays at its default 1.0.
-                cfg.storm_comms_success_rate = 1.0;
+                // Crucially, comms degradation inside the storm is an
+                // ENVIRONMENTAL effect (heavy weather destroys VHF/AIS), so it
+                // applies to every method equally — Baseline A does NOT get
+                // "perfect radio". Granting it perfect storm comms previously
+                // made A artificially collision-free and inverted the intended
+                // H1/H3 ordering (Proposed should beat A under the storm).
+                //
+                // The only thing A lacks here is the *behavioural* mitigation the
+                // weather-aware methods apply: it does not slow down in the storm
+                // (no hazard-gated speed reduction → more encounters, higher
+                // closing energy), so storm_speed_factor stays at 1.0 while
+                // storm_comms_success_rate keeps its degraded scenario value.
                 cfg.storm_speed_factor = 1.0;
             }
             Method::BaselineB | Method::ProposedSystem => {
