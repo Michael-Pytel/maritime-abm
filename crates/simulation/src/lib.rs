@@ -1,6 +1,7 @@
 pub mod ais;
 pub mod ashrafi;
 pub mod comms;
+pub mod forcefield;
 pub mod iwrap;
 pub mod kpi;
 pub mod land;

@@ -57,6 +57,10 @@ pub struct SimConfig {
     #[serde(default)]
     pub sar: crate::sar::SarParams,
 
+    /// Optional artificial-force-field avoidance track (default off).
+    #[serde(default)]
+    pub forcefield: crate::forcefield::ForceFieldParams,
+
     /// Calendar month (1–12) driving Ashrafi seasonal SAR degradation.
     #[serde(default = "default_sim_month")]
     pub sim_month: u8,
@@ -152,6 +156,7 @@ impl Default for SimConfig {
             same_destination_nm: 5.0,
             simcol: crate::simcol::SimcolParams::default(),
             sar: crate::sar::SarParams::default(),
+            forcefield: crate::forcefield::ForceFieldParams::default(),
             sim_month: default_sim_month(),
             port_dwell_min_ticks: 8,
             port_dwell_max_ticks: 48,

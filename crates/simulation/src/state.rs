@@ -72,6 +72,9 @@ pub struct SimState {
     next_mob_id: u64,
     next_mob_incident_id: u64,
     next_mob_agent_id: u64,
+    /// Per-vessel Nomoto yaw rate (deg/tick) for the optional force-field track.
+    /// Empty and untouched unless `config.forcefield.enabled`.
+    forcefield_yaw: std::collections::HashMap<u64, f64>,
 }
 
 impl SimState {
@@ -125,6 +128,7 @@ impl SimState {
             next_mob_id: 1,
             next_mob_incident_id: 1,
             next_mob_agent_id: 1,
+            forcefield_yaw: std::collections::HashMap::new(),
             rng,
             config,
         })
@@ -707,6 +711,70 @@ impl SimState {
         }
     }
 
+    /// Apply one tick of artificial-force-field steering (Xiao 2013) to every
+    /// active vessel.
+    ///
+    /// Each ship sums the repulsion from nearby active vessels, derives a rudder
+    /// from the resultant's lateral component (plus a COLREGS starboard bias),
+    /// lags it through a first-order Nomoto response, and side-steps to starboard
+    /// accordingly. Crew preparedness (`1 − fatigue`) scales the rudder, so tired
+    /// crews avoid later and more weakly. The land mask vetoes any side-step that
+    /// would cross land. Only invoked when `config.forcefield.enabled`.
+    fn apply_force_field(&mut self, config: &SimConfig) {
+        use crate::forcefield::{self, Obstacle};
+        let p = &config.forcefield;
+        let land_mask = self.land_mask.clone();
+
+        // Snapshot the active fleet's kinematics for obstacle sensing.
+        let actives: Vec<ForceFieldEntry> = self
+            .vessels
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.state.is_active())
+            .map(|(i, v)| (i, v.id, v.position, v.heading_deg, v.fatigue))
+            .collect();
+
+        let mut updates: Vec<ForceFieldEntry> = Vec::new();
+        for &(i, id, pos, heading, fatigue) in &actives {
+            let obstacles: Vec<Obstacle> = actives
+                .iter()
+                .filter(|&&(j, ..)| j != i)
+                .map(|&(_, _, o_pos, o_hdg, _)| Obstacle {
+                    position: o_pos,
+                    heading_deg: o_hdg,
+                })
+                .collect();
+
+            let prep = (1.0 - p.fatigue_weakening * fatigue).clamp(0.1, 1.0);
+            let prev_yaw = self.forcefield_yaw.get(&id).copied().unwrap_or(0.0);
+            let r = forcefield::steer(pos, heading, prev_yaw, &obstacles, prep, p);
+
+            // Side-step to starboard, scaled by the realised turn over this tick.
+            let step_nm = self.vessels[i].speed_kn * 0.25;
+            let s = forcefield::starboard(heading);
+            let shift = step_nm * r.yaw.to_radians().sin();
+            let new_pos = (pos.0 + s.0 * shift, pos.1 + s.1 * shift);
+            updates.push((i, id, new_pos, r.new_heading, r.yaw));
+        }
+
+        for (i, id, new_pos, new_heading, yaw) in updates {
+            self.forcefield_yaw.insert(id, yaw);
+            let v = &mut self.vessels[i];
+            v.heading_deg = new_heading;
+            // Honour the land mask: keep the side-step only if it stays in water.
+            if !land_mask.segment_crosses_land(v.position, new_pos)
+                && !land_mask.contains_point(new_pos.0, new_pos.1)
+            {
+                v.position = new_pos;
+                v.last_valid_position = new_pos;
+            }
+        }
+
+        // Drop yaw state for vessels that are no longer active (reaped/foundered).
+        let active_ids: HashSet<u64> = actives.iter().map(|&(_, id, ..)| id).collect();
+        self.forcefield_yaw.retain(|id, _| active_ids.contains(id));
+    }
+
     /// Remove vessels in a terminal SAR state (`Rescued` / `Lost`), tallying the
     /// cumulative counters. The fleet top-up in `post_tick` respawns
     /// replacements to maintain the configured fleet size.
@@ -862,17 +930,23 @@ impl SimState {
             });
         }
 
-        // CPA detection + avoidance waypoint injection.
+        // Collision avoidance. The optional artificial-force-field track (Xiao
+        // 2013) replaces the CPA/COLREGS waypoint avoidance when enabled; off by
+        // default, in which case this is byte-for-byte the prior behaviour.
         let storm_pos = self.storm_pos;
-        run_collision_avoidance(
-            tick,
-            &config,
-            &mut self.vessels,
-            &mut self.comms_log,
-            &mut self.kpi,
-            &mut self.rng,
-            storm_pos,
-        );
+        if config.forcefield.enabled {
+            self.apply_force_field(&config);
+        } else {
+            run_collision_avoidance(
+                tick,
+                &config,
+                &mut self.vessels,
+                &mut self.comms_log,
+                &mut self.kpi,
+                &mut self.rng,
+                storm_pos,
+            );
+        }
 
         // Cooldown countdown.
         for v in &mut self.vessels {
@@ -1249,6 +1323,11 @@ pub struct CollisionRecord {
 /// `(vessel_index, position, destination, speed_kn)`.
 type FollowEntry = (usize, (f64, f64), (f64, f64), f64);
 
+/// A force-field steering record: `(vessel_index, id, position, heading_deg,
+/// fatigue_or_yaw)` — used both for the active-fleet snapshot and the staged
+/// per-vessel updates in [`SimState::apply_force_field`].
+type ForceFieldEntry = (usize, u64, (f64, f64), f64, f64);
+
 /// The destination endpoint a vessel is currently heading toward (the route
 /// endpoint in its travel direction), or `None` if it has no usable route.
 fn dest_of(v: &VesselAgent) -> Option<(f64, f64)> {
@@ -1554,6 +1633,7 @@ impl SimStateWrapper {
             self.inner.next_mob_id = 1;
             self.inner.next_mob_incident_id = 1;
             self.inner.next_mob_agent_id = 1;
+            self.inner.forcefield_yaw.clear();
             self.inner.comms_log.clear();
             self.inner.collision_events.clear();
             self.inner.weather =
@@ -1619,6 +1699,7 @@ impl State for SimStateWrapper {
         self.inner.next_mob_id = 1;
         self.inner.next_mob_incident_id = 1;
         self.inner.next_mob_agent_id = 1;
+        self.inner.forcefield_yaw.clear();
         self.inner.comms_log.clear();
         self.inner.collision_events.clear();
         self.inner.weather =
@@ -2115,6 +2196,85 @@ mod tests {
             "an unreachable datum past the survival window is lost"
         );
         assert!(!state.wrecks.is_empty(), "a wreck marker is recorded");
+    }
+
+    #[test]
+    fn test_forcefield_separates_head_on_to_starboard() {
+        // With the force-field track on, a head-on pair both alter to starboard
+        // (COLREGS Art. 14): the north-bound ship steps east, the south-bound
+        // ship steps west, so they separate. No RNG → fully deterministic.
+        use crate::ais::field_width_nm;
+        let mut cfg = test_cfg();
+        cfg.forcefield.enabled = true;
+        let mut state = SimState::new(cfg.clone()).unwrap();
+        state.land_mask = LandMask::empty(); // isolate steering from coastline geometry
+        let cx = field_width_nm() / 2.0;
+
+        let mk = |id: u64, pos: (f64, f64), hdg: f64| VesselAgent {
+            id,
+            name: format!("V{id}"),
+            vessel_type: "cargo".into(),
+            route: vec![], // empty → navigate() is a no-op; force field acts directly
+            route_index: 0,
+            route_direction: 1,
+            position: pos,
+            last_valid_position: pos,
+            heading_deg: hdg,
+            speed_kn: 15.0,
+            state: VesselState::Active,
+            n_crew: 10,
+            dock_until_tick: None,
+            last_port_id: None,
+            avoidance_wps: vec![],
+            avoidance_cooldown: 0,
+            avoiding_vessel_id: None,
+            avoided_vessel_id: None,
+            avoiding: false,
+            anchored: false,
+            follow_speed_cap: None,
+            fatigue: 0.0,
+        };
+        state.vessels.push(mk(1, (cx, 450.0), 0.0)); // north-bound
+        state.vessels.push(mk(2, (cx, 455.0), 180.0)); // south-bound, 5 nm ahead
+
+        let x1_0 = state.vessels[0].position.0;
+        let x2_0 = state.vessels[1].position.0;
+        for _ in 0..10 {
+            state.apply_force_field(&cfg);
+        }
+
+        assert!(
+            state.vessels[0].position.0 > x1_0,
+            "north-bound ship steers starboard (east): {} -> {}",
+            x1_0,
+            state.vessels[0].position.0
+        );
+        assert!(
+            state.vessels[1].position.0 < x2_0,
+            "south-bound ship steers starboard (west): {} -> {}",
+            x2_0,
+            state.vessels[1].position.0
+        );
+    }
+
+    #[test]
+    fn test_forcefield_off_is_byte_identical() {
+        // Determinism guard: with the switch off the engine reproduces itself
+        // exactly (the new yaw state must not perturb the default path).
+        let run = || -> Vec<(u64, (f64, f64))> {
+            let mut cfg = test_cfg();
+            cfg.n_ticks = 60;
+            cfg.n_vessels = 10;
+            // forcefield defaults to disabled.
+            let mut w = SimStateWrapper::new(cfg).unwrap();
+            w.do_init();
+            for _ in 0..60 {
+                let recs = w.ais_records.clone();
+                w.inner.run_tick(&recs);
+            }
+            w.inner.vessels.iter().map(|v| (v.id, v.position)).collect()
+        };
+        assert_eq!(run(), run(), "force-field-off path is byte-identical");
     }
 
     #[test]
