@@ -1,0 +1,15 @@
+{
+  "lat_min": 50.5,
+  "lon_min": -5.0,
+  "dlat": 0.02,
+  "dlon": 0.036,
+  "nlat": 775,
+  "nlon": 1000,
+  "bands": [
+    "passenger",
+    "cargo",
+    "tanker"
+  ],
+  "order": "band-major then row-major, row0=south, col0=west; 0..255 attractiveness",
+  "source": "EMODnet Human Activities vessel density, year 2023"
+}
