@@ -7,10 +7,26 @@ edition = "2021"
 name = "aisprocess"
 path = "src/main.rs"
 
+# Procedural / public-API route generator (replaces the manual CSV pipeline).
+[[bin]]
+name = "gen_routes"
+path = "src/gen_routes.rs"
+
+[lib]
+name = "aisprocess"
+path = "src/lib.rs"
+
 [dependencies]
 csv.workspace     = true
+serde.workspace   = true
 serde_json.workspace = true
 anyhow.workspace  = true
+rand.workspace    = true
+flate2            = "1"
+simulation        = { path = "../simulation" }
+
+[dev-dependencies]
+geo.workspace = true
 
 [lints]
 workspace = true
