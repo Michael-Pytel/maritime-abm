@@ -1,0 +1,12 @@
+{
+  "lat_min": 50.5,
+  "lon_min": -5.0,
+  "dlat": 0.01,
+  "dlon": 0.018,
+  "nlat": 1550,
+  "nlon": 2000,
+  "nodata": -32768,
+  "order": "row-major, row0=south (lat asc), col0=west (lon asc)",
+  "units": "metres, negative = below sea level",
+  "source": "EMODnet Digital Bathymetry (DTM), https://emodnet.ec.europa.eu/en/bathymetry"
+}
