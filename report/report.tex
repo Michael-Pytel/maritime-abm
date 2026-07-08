@@ -35,7 +35,7 @@ collision avoidance, human factors, search and rescue}
 
 % ------------------------------------------------------------------
 \begin{abstract}
-Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and adverse weather compounds it by degrading both perception and the very communications crews rely on to coordinate avoidance. We present a tick-based maritime agent-based model on the real Baltic and North Sea, in which vessels follow hand-authored shipping tracks and resolve encounters through a Closest-Point-of-Approach (CPA) detector coupled to a COLREGs-style give-way rule. The contribution is a quantified causal chain from \emph{environmental and human degradation} to \emph{collision outcome}: the success of every collision-warning exchange is gated by the product of local weather severity and a circadian crew-fatigue scalar, so tired watch-keepers in heavy weather miss warnings and collide. Collision consequences are evaluated with an accredited probabilistic damage model (DTU SIMCOL), external collision frequency is cross-validated against the regulator-grade IWRAP Mk II model, and a search-and-rescue subsystem layers IAMSAR random-search detection (MASSIM) with month-conditioned Arctic environmental degradation (Ashrafi). Against a classical and a weather-aware baseline, the system is evaluated across four scenarios with 30 seed-matched runs per condition using Mann--Whitney U tests with Holm--Bonferroni correction and Cliff's $\delta$ effect sizes. We hypothesise that fatigue-aware watch scheduling reduces the fatal-event rate by ${\geq}20\,\%$ and improves post-incident survival by ${\geq}15\,\%$ relative to the classical baseline.
+Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and adverse weather compounds it by degrading both perception and the very communications crews rely on to coordinate avoidance. We present a tick-based maritime agent-based model on the real Baltic and North Sea, in which vessels follow depth- and lane-constrained shipping tracks synthesised from open bathymetry and AIS traffic-density data, and resolve encounters through a Closest-Point-of-Approach (CPA) detector coupled to a COLREGs-style give-way rule. The contribution is a quantified causal chain from \emph{environmental and human degradation} to \emph{collision outcome}: the success of every collision-warning exchange is gated by the product of local weather severity and a circadian crew-fatigue scalar, so tired watch-keepers in heavy weather miss warnings and collide. Collision consequences are evaluated with an accredited probabilistic damage model (DTU SIMCOL), external collision frequency is cross-validated against the regulator-grade IWRAP Mk II model, and a search-and-rescue subsystem layers IAMSAR random-search detection (MASSIM) with month-conditioned Arctic environmental degradation (Ashrafi). Against a classical and a weather-aware baseline, the system is evaluated across four scenarios with 30 seed-matched runs per condition using Mann--Whitney U tests with Holm--Bonferroni correction and Cliff's $\delta$ effect sizes. We hypothesise that fatigue-aware watch scheduling reduces the fatal-event rate by ${\geq}20\,\%$ and improves post-incident survival by ${\geq}15\,\%$ relative to the classical baseline.
 \end{abstract}
 
 % ==================================================================
@@ -134,7 +134,7 @@ The simulation occupies the real Baltic and North Sea basin, bounded by latitude
   \label{eq:proj}
 \end{equation}
 %
-The domain measures $930$\,nm north--south ($15.5^\circ \times 60$) and ${\approx}1136$\,nm east--west; the residual east--west distortion is at most ${\sim}6$--$10\,\%$ at the box edges and is accepted without correction terms, so the engine treats all distances as Euclidean nautical miles. The coastline is loaded from Natural-Earth polygons into an R-tree spatial index supporting accelerated point-in-polygon (land) and segment-intersection (grounding) tests.
+The domain measures $930$\,nm north--south ($15.5^\circ \times 60$) and ${\approx}1136$\,nm east--west; the residual east--west distortion is at most ${\sim}6$--$10\,\%$ at the box edges and is accepted without correction terms, so the engine treats all distances as Euclidean nautical miles. The coastline is loaded from Natural-Earth polygons into an R-tree spatial index supporting accelerated point-in-polygon (land) and segment-intersection (grounding) tests. Sea depth, used only offline for route planning (Section~\ref{sec:routegen}), is taken from a separate gridded bathymetry product and is not consulted during the tick loop.
 
 \subsection{Time Resolution}
 
@@ -144,7 +144,7 @@ Time advances in discrete ticks of $\Delta t = 15$\,min ($0.25$\,h). The default
 
 The model contains vessel agents and, on incident, rescue agents (Section~\ref{sec:sar}). Each vessel $i$ carries position $\mathbf{p}_i$, an ordered route $R_i = (\mathbf{w}_0,\dots,\mathbf{w}_{m-1})$ of waypoints, a route index and travel direction $d_i \in \{+1,-1\}$, heading $\psi_i$, cruise speed $v_i$, a discrete state $\sigma_i \in \{\textsc{Active}, \textsc{Docked}\}$, crew count $n_i = 10$, and an internal fatigue scalar $F_i \in [0,1]$.
 
-Routes are \emph{hand-authored} ordered keypoint polylines drawn in a browser-based editor (\texttt{tools/waypoint\_editor.html}) and stored as \texttt{data/ais\_paths.json} with schema \texttt{mmsi/name/vessel\_type/waypoints[]}. Fixing the lane geometry by hand --- rather than replaying raw AIS --- gives a controlled, reproducible traffic substrate for the information-quality experiment while preserving realistic basin-scale routing. Ports are likewise hand-authored polygons (\texttt{data/ports.json}); a vessel that enters a port polygon docks.
+Routes are \emph{synthesised procedurally} rather than replayed from raw AIS or drawn by hand: a deterministic, depth- and lane-aware planner (Section~\ref{sec:routegen}) generates ordered keypoint polylines stored as \texttt{data/ais\_paths.json} with schema \texttt{mmsi/name/vessel\_type/waypoints[]}. This keeps the traffic substrate controlled and reproducible for the information-quality experiment, while guaranteeing that every lane is deep enough for its vessel class and follows the corridors real traffic uses. Ports are a generated set of polygons (\texttt{data/ports.json}) placed on real harbours; a vessel that enters a port polygon docks.
 
 Cruise speed is drawn at spawn by vessel type ($u \sim \mathcal{U}(0,1)$):
 %
@@ -162,6 +162,39 @@ Cruise speed is drawn at spawn by vessel type ($u \sim \mathcal{U}(0,1)$):
 \textbf{Waypoint pursuit.} With active target $\mathbf{t}$ (an avoidance waypoint if queued, else the current route waypoint), $\boldsymbol{\delta} = \mathbf{t} - \mathbf{p}_i$ and $\rho = \lVert\boldsymbol{\delta}\rVert$, a waypoint is reached when $\rho < 0.5$\,nm. The per-tick step is $s = \min(v_i\,\Delta t,\ \rho)$ and the proposed move is $\mathbf{p}_i' = \mathbf{p}_i + (\boldsymbol{\delta}/\rho)\,s$, with compass heading $\psi_i = (90^\circ - \operatorname{atan2}(\delta_y,\delta_x)) \bmod 360^\circ$. To prevent tunnelling through thin landmasses, the move is accepted at the first of up to five geometrically halved step lengths $s\cdot 2^{-j}$ ($j=0,\dots,4$) whose segment does not cross land; a post-move grounding guard reverts $\mathbf{p}_i$ to the last valid position if it ended on land. On reaching a port or route endpoint a vessel docks for a randomised dwell $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses ($d_i \leftarrow -d_i$). A fixed fleet size $N$ is maintained: when $|\text{fleet}| < N$, a fresh vessel is spawned onto a random hand-authored track.
 
 \textbf{Same-destination following.} Co-directional traffic bound for the same destination is not separated by the give-way rule (an overtaking pair has near-zero relative velocity, Section~\ref{sec:avoidance}), so a leader--follower discipline prevents vessels from drawing up side-by-side and overlapping. Two vessels share a destination when their route endpoints (in the travel direction) lie within $5$\,nm of each other. A trailing vessel within a vicinity $r_v = 3$\,nm of such a leader --- the vessel ahead, i.e.\ closer to the shared destination --- caps its speed to the leader's, so it matches speed and does not overtake; if it closes within a keep-distance gap $g = 0.5$\,nm it holds station (anchors). On first acquiring a leader it is radioed to slow down, match speed, and keep distance. This applies anywhere the courses converge, not only at the port mouth, and yields a stop-and-go queue whose throughput matches the leader's speed.
+
+\subsection{Route Generation from Bathymetry and Traffic Density}
+\label{sec:routegen}
+
+Rather than replaying raw AIS or hand-drawing lanes, the traffic substrate is \emph{synthesised} by a deterministic, depth-aware route planner, so the geometry is reproducible yet physically defensible for large vessels. Two open datasets ground it. Sea depth comes from the EMODnet Digital Bathymetry (DTM), a gridded product at $1/16'$ ($\approx$115\,m) resolution covering the whole basin~\cite{emodnetbathymetry}. Empirical shipping lanes come from the EMODnet Human Activities vessel-density maps --- AIS-derived ship-hours per km$^2$ resolved by vessel type~\cite{emodnetvesseldensity}, consistent with the use of AIS density to characterise traffic patterns~\cite{silveira2013}. Both are fetched once through their open OGC Web Coverage Services (\texttt{ows.emodnet-bathymetry.eu} and \texttt{ows.emodnet-humanactivities.eu}) and bundled as compact grids by \texttt{tools/fetch\_bathymetry.py} and \texttt{tools/fetch\_lanes.py}; generation itself runs offline. Ports are a built-in gazetteer of $42$ major Baltic / North-Sea harbours, each snapped onto navigable water.
+
+\textbf{Navigability by draft.} Each vessel class $c$ has a static draft $T_c$ and a required under-keel clearance $\text{UKC}_c$, following harbour-approach-channel practice~\cite{pianc2014}. A grid cell of charted depth $h$ is navigable for the class iff $h \ge T_c + \text{UKC}_c + m_s$, with a coarse-grid safety buffer $m_s = 2$\,m; Table~\ref{tab:draft} gives the three classes (deep-draft {VLCC}s are excluded, as they cannot transit the Danish Straits into the Baltic). Because navigability is a \emph{depth} test, shallow archipelago water is impassable regardless of whether individual skerries are resolved in the coastline polygons --- structurally preventing the routes from cutting across islands or shoals.
+
+\begin{table}[h]
+\centering
+\caption{Vessel-class minimum transit depth (draft + under-keel clearance).}
+\label{tab:draft}
+\begin{tabular}{lccc}
+\toprule
+Class & Draft $T_c$ (m) & $\text{UKC}_c$ (m) & Required $h$ (m) \\
+\midrule
+Passenger & 6.5 & 1.5 & 8 \\
+Cargo     & 11.0 & 2.0 & 13 \\
+Tanker    & 14.0 & 3.0 & 17 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Cost-field planner.} Between a sampled origin/destination port pair the planner runs a weighted A\textsuperscript{*} search~\cite{hart1968astar} on a $1$\,nm grid. Each navigable cell carries a cost multiplier
+%
+\begin{equation}
+  \mu = 1 + w_h\,s_h + w_d\,s_d + w_\ell\,(1 - a_\ell),
+  \label{eq:routecost}
+\end{equation}
+%
+penalising cells whose depth is close to the class limit ($s_h \in [0,1]$, a squat / safety margin), cells within a $2.5$\,nm offing of shore or shoal ($s_d \in [0,1]$, from a multi-source distance transform of the impassable cells), and cells \emph{off} the class's lane ($a_\ell \in [0,1]$ the normalised vessel-density attractiveness for that class). The cost of a move is the inter-cell distance times the mean of the two endpoint multipliers; since $\mu \ge 1$ the octile distance remains an admissible heuristic. With weights $(w_h, w_d, w_\ell) = (3, 4, 2.5)$ the least-cost paths hold deep water down the middle of a channel, keep an offing from the coast, and gravitate to the corridors that class of ship actually uses.
+
+\textbf{Post-processing and determinism.} Each cell path is simplified (Ramer--Douglas--Peucker) under the constraint that no shortcut segment crosses water shallower than the class allows, and a final check against the raw bathymetry (sampled every $0.15$\,nm) guarantees the emitted polyline never dips below $T_c + \text{UKC}_c$. A small seeded per-route cost jitter makes the output deterministic for a given seed yet varied between seeds. On the default configuration the planner emits $80$ routes ($35$ cargo, $25$ passenger, $20$ tanker); verification confirms $0$ of ${\sim}10^5$ along-route samples below the class depth requirement, an ${\approx}84\,\%$ higher mean on-lane fraction than a depth-only planner, and correct transits of the deep-water Great Belt and Skagerrak between the North Sea and the Baltic.
 
 \subsection{Weather and Hazard Field}
 \label{sec:weather}

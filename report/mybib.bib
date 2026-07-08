@@ -326,3 +326,55 @@
   type         = {International Convention for the Safety of Life at Sea},
   address      = {London, UK}
 }
+
+% ============================================================
+%  Route-generation data sources and methods
+% ============================================================
+
+@misc{emodnetbathymetry,
+  author       = {{EMODnet Bathymetry Consortium}},
+  title        = {{EMODnet} Digital Bathymetry ({DTM} 2024)},
+  howpublished = {European Marine Observation and Data Network (EMODnet),
+                  Bathymetry portal},
+  year         = {2024},
+  note         = {Gridded water-depth product at $1/16'$
+                  ($\approx$115\,m) resolution; retrieved via the {OGC} {WCS}
+                  endpoint \texttt{ows.emodnet-bathymetry.eu/wcs}},
+  url          = {https://emodnet.ec.europa.eu/en/bathymetry}
+}
+
+@misc{emodnetvesseldensity,
+  author       = {{EMODnet Human Activities}},
+  title        = {Vessel Density Map},
+  howpublished = {European Marine Observation and Data Network (EMODnet),
+                  Human Activities portal},
+  year         = {2023},
+  note         = {{AIS}-derived ship density (hours\,km$^{-2}$\,month$^{-1}$)
+                  on a 1\,km grid, resolved by vessel type; retrieved via the
+                  {OGC} {WCS} endpoint
+                  \texttt{ows.emodnet-humanactivities.eu/wcs}},
+  url          = {https://emodnet.ec.europa.eu/en/human-activities}
+}
+
+@article{hart1968astar,
+  author    = {Hart, Peter E. and Nilsson, Nils J. and Raphael, Bertram},
+  title     = {A Formal Basis for the Heuristic Determination of Minimum
+               Cost Paths},
+  journal   = {IEEE Transactions on Systems Science and Cybernetics},
+  volume    = {4},
+  number    = {2},
+  pages     = {100--107},
+  year      = {1968},
+  publisher = {IEEE},
+  doi       = {10.1109/TSSC.1968.300136}
+}
+
+@techreport{pianc2014,
+  author       = {{PIANC}},
+  title        = {Harbour Approach Channels Design Guidelines
+                  ({MarCom Report} No.~121)},
+  institution  = {World Association for Waterborne Transport
+                  Infrastructure (PIANC)},
+  year         = {2014},
+  address      = {Brussels, Belgium}
+}
