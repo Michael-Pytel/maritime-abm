@@ -1,8 +1,34 @@
 import { useState, useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, Polyline, Tooltip } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
+import DeckGL from "@deck.gl/react";
+import { Map } from "react-map-gl/maplibre";
+import { PathLayer } from "deck.gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 const API = "http://localhost:3000";
+
+// ── MarineTraffic-style dark basemap (keyless CARTO raster), shared visual
+//    language with MapGL. ──────────────────────────────────────────────────────
+const DARK_STYLE = {
+  version: 8 as const,
+  sources: {
+    carto: {
+      type: "raster" as const,
+      tiles: [
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "© OpenStreetMap © CARTO",
+    },
+  },
+  layers: [
+    { id: "bg", type: "background" as const, paint: { "background-color": "#0a1420" } },
+    { id: "carto", type: "raster" as const, source: "carto" },
+  ],
+};
+
+const INITIAL_VIEW = { longitude: 13, latitude: 58, zoom: 4.4, pitch: 0, bearing: 0 };
 
 interface AisWaypoint {
   lat: number;
@@ -17,7 +43,20 @@ interface AisRecord {
   waypoints: AisWaypoint[];
 }
 
-const TYPE_COLOR: Record<string, string> = {
+/** A route prepared for deck.gl: [lon, lat] path + its source record. */
+interface RouteFeature extends AisRecord {
+  path: [number, number][];
+}
+
+type RGB = [number, number, number];
+const TYPE_COLOR: Record<string, RGB> = {
+  cargo:     [59, 130, 246],
+  passenger: [34, 197, 94],
+  tanker:    [249, 115, 22],
+};
+const DEFAULT_COLOR: RGB = [148, 163, 184];
+
+const TYPE_HEX: Record<string, string> = {
   cargo:     "#3b82f6",
   passenger: "#22c55e",
   tanker:    "#f97316",
@@ -57,9 +96,32 @@ export default function PathsPanel() {
     return c;
   }, [routes]);
 
-  const displayed = useMemo(
-    () => filter === "all" ? routes : routes.filter(r => r.vessel_type.toLowerCase() === filter),
+  const displayed = useMemo<RouteFeature[]>(
+    () =>
+      routes
+        .filter(r => filter === "all" || r.vessel_type.toLowerCase() === filter)
+        .map(r => ({ ...r, path: r.waypoints.map(wp => [wp.lon, wp.lat] as [number, number]) })),
     [routes, filter],
+  );
+
+  const layers = useMemo(
+    () => [
+      new PathLayer<RouteFeature>({
+        id: "ais-paths",
+        data: displayed,
+        getPath: d => d.path,
+        getColor: d => [...(TYPE_COLOR[d.vessel_type.toLowerCase()] ?? DEFAULT_COLOR), 165] as [number, number, number, number],
+        getWidth: 2,
+        widthUnits: "pixels",
+        widthMinPixels: 1.5,
+        jointRounded: true,
+        capRounded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 255, 220],
+      }),
+    ],
+    [displayed],
   );
 
   return (
@@ -82,7 +144,7 @@ export default function PathsPanel() {
 
         <div style={{ display: "flex", gap: 6 }}>
           {FILTER_TYPES.map(t => {
-            const color  = TYPE_COLOR[t];
+            const color  = TYPE_HEX[t];
             const active = filter === t;
             const label  = t === "all"
               ? `All (${routes.length})`
@@ -108,7 +170,7 @@ export default function PathsPanel() {
 
         {/* Legend dots */}
         <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
-          {Object.entries(TYPE_COLOR).map(([type, color]) => (
+          {Object.entries(TYPE_HEX).map(([type, color]) => (
             <span key={type} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#94a3b8" }}>
               <span style={{ width: 20, height: 2, background: color, display: "inline-block", borderRadius: 1 }} />
               {TYPE_LABELS[type]}
@@ -138,45 +200,39 @@ export default function PathsPanel() {
           </div>
         )}
 
-        {/* preferCanvas omitted (defaults false) so SVG is used — required for
-            per-polyline mouse events and Tooltip hover to work correctly. */}
-        <MapContainer
-          center={[58, 14]}
-          zoom={5}
-          style={{ height: "100%", width: "100%" }}
+        <DeckGL
+          initialViewState={INITIAL_VIEW}
+          controller
+          layers={layers as never}
+          getTooltip={getTooltip}
+          style={{ position: "absolute", inset: "0" }}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          {displayed.map(record => {
-            const typeKey = record.vessel_type.toLowerCase();
-            return (
-              <Polyline
-                key={record.mmsi}
-                positions={record.waypoints.map(wp => [wp.lat, wp.lon] as [number, number])}
-                pathOptions={{
-                  color:   TYPE_COLOR[typeKey] ?? "#94a3b8",
-                  weight:  2,
-                  opacity: 0.65,
-                }}
-              >
-                <Tooltip sticky>
-                  <div style={{ lineHeight: 1.5 }}>
-                    <strong style={{ fontSize: 12 }}>{record.name}</strong><br />
-                    <span style={{ color: "#64748b", fontSize: 11 }}>MMSI {record.mmsi}</span><br />
-                    <span style={{ fontSize: 11 }}>
-                      {TYPE_LABELS[typeKey] ?? record.vessel_type}
-                      &nbsp;·&nbsp;{record.waypoints.length} waypoints
-                    </span>
-                  </div>
-                </Tooltip>
-              </Polyline>
-            );
-          })}
-        </MapContainer>
+          <Map reuseMaps mapStyle={DARK_STYLE as never} />
+        </DeckGL>
       </div>
     </div>
   );
+}
+
+const TOOLTIP_STYLE: Record<string, string> = {
+  background: "#0d1526",
+  color: "#e2e8f0",
+  fontSize: "11px",
+  padding: "6px 9px",
+  borderRadius: "6px",
+  border: "1px solid #1e3a5f",
+  boxShadow: "0 4px 14px rgba(0,0,0,.5)",
+};
+
+function getTooltip(info: { object?: RouteFeature }): { html: string; style: Record<string, string> } | null {
+  const r = info.object;
+  if (!r) return null;
+  const typeKey = r.vessel_type.toLowerCase();
+  return {
+    html:
+      `<div style="font-weight:700;margin-bottom:2px">${r.name}</div>` +
+      `<div style="opacity:.65">MMSI ${r.mmsi}</div>` +
+      `<div style="opacity:.85">${TYPE_LABELS[typeKey] ?? r.vessel_type} · ${r.waypoints.length} waypoints</div>`,
+    style: TOOLTIP_STYLE,
+  };
 }

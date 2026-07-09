@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { TickMessage, RunManifest, WeatherChannels } from "../types";
+import type { TickMessage, RunManifest } from "../types";
 
 const API = "http://localhost:3000";
 
@@ -11,17 +11,6 @@ export const SPEED_PRESETS = [
   { label: "Very Fast", ms: 50   },
 ] as const;
 
-export const STRIDE_OPTIONS = [1, 2, 4, 8] as const;
-
-export interface LayerToggles {
-  rescueAssets: boolean;
-  sosMarkers: boolean;
-  radioRangeCircles: boolean;
-  shoreBroadcastCircles: boolean;
-  weatherOverlay: boolean;
-  stormCenters: boolean;
-}
-
 export function usePlayback() {
   const [runs, setRuns] = useState<RunManifest[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -30,16 +19,6 @@ export function usePlayback() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speedMs, setSpeedMs] = useState(250);
-  const [stride, setStride] = useState(1);
-  const [weatherChannel, setWeatherChannel] = useState<keyof WeatherChannels>("hazard");
-  const [layers, setLayers] = useState<LayerToggles>({
-    rescueAssets: true,
-    sosMarkers: true,
-    radioRangeCircles: false,
-    shoreBroadcastCircles: true,
-    weatherOverlay: true,
-    stormCenters: true,
-  });
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -91,7 +70,7 @@ export function usePlayback() {
     if (playing && ticks.length > 0) {
       intervalRef.current = setInterval(() => {
         setCurrentIdx(i => {
-          const next = i + stride;
+          const next = i + 1;
           if (next >= ticks.length) {
             setPlaying(false);
             return ticks.length - 1;
@@ -103,11 +82,7 @@ export function usePlayback() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [playing, speedMs, stride, ticks.length]);
-
-  const toggleLayer = useCallback((key: keyof LayerToggles) => {
-    setLayers(prev => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+  }, [playing, speedMs, ticks.length]);
 
   const currentTick = ticks[currentIdx] ?? null;
   const manifest = selectedRunId
@@ -127,12 +102,6 @@ export function usePlayback() {
     setPlaying,
     speedMs,
     setSpeedMs,
-    stride,
-    setStride,
-    weatherChannel,
-    setWeatherChannel,
-    layers,
-    toggleLayer,
     currentTick,
     manifest,
   };

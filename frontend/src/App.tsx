@@ -1,13 +1,17 @@
-import { useState, useMemo, Component } from "react";
+import { useState, useMemo, Component, lazy, Suspense } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { usePlayback } from "./hooks/usePlayback";
 import type { KpiSnapshot, TelemetrySnapshot, VesselMsg } from "./types";
-import BatchPanel from "./components/BatchPanel";
-import StatsPanel from "./components/StatsPanel";
 import RunsWorkspace from "./components/RunsWorkspace";
-import TelemetryPanel from "./components/TelemetryPanel";
 import PathsPanel from "./components/PathsPanel";
 import CommsLog from "./components/CommsLog";
+
+// The recharts-backed panels are the only consumers of the (large) charts
+// bundle and never sit on the default tab — lazy-load them so recharts is
+// kept out of the initial payload.
+const BatchPanel = lazy(() => import("./components/BatchPanel"));
+const StatsPanel = lazy(() => import("./components/StatsPanel"));
+const TelemetryPanel = lazy(() => import("./components/TelemetryPanel"));
 
 type Tab = "runs" | "telemetry" | "comms" | "batch" | "stats" | "paths";
 
@@ -131,7 +135,7 @@ export default function App() {
           <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", background: "#0a0f1e" }}>
             {ticks.length === 0
               ? <EmptyHint text="Select a run in the Runs tab to see its telemetry." />
-              : <TelemetryPanel kpiHistory={kpiHistory} telemetryHistory={telemetryHistory} />}
+              : <Suspense fallback={<PanelFallback />}><TelemetryPanel kpiHistory={kpiHistory} telemetryHistory={telemetryHistory} /></Suspense>}
           </div>
         )}
 
@@ -145,13 +149,13 @@ export default function App() {
 
         {tab === "batch" && (
           <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", background: "#0a0f1e" }}>
-            <BatchPanel />
+            <Suspense fallback={<PanelFallback />}><BatchPanel /></Suspense>
           </div>
         )}
 
         {tab === "stats" && (
           <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", background: "#0a0f1e" }}>
-            <StatsPanel />
+            <Suspense fallback={<PanelFallback />}><StatsPanel /></Suspense>
           </div>
         )}
 
@@ -168,6 +172,12 @@ export default function App() {
 function EmptyHint({ text }: { text: string }) {
   return (
     <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6, maxWidth: 480 }}>{text}</div>
+  );
+}
+
+function PanelFallback() {
+  return (
+    <div style={{ fontSize: 12, color: "#475569", padding: "8px 0" }}>Loading…</div>
   );
 }
 

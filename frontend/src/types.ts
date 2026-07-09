@@ -147,28 +147,6 @@ export interface Storm {
   radius_nm: number;
 }
 
-export interface WeatherChannels {
-  hazard?: number[];
-  sea_state?: number[];
-  wind?: number[];
-  wind_direction?: number[];
-  visibility?: number[];
-  precipitation?: number[];
-  pressure?: number[];
-  tide?: number[];
-  surge?: number[];
-  total_water_level?: number[];
-  wave_height?: number[];
-  wave_period?: number[];
-}
-
-export type WeatherChannel = keyof WeatherChannels;
-
-export interface WeatherMeta {
-  regime: string;
-  particle_seed?: number;
-}
-
 export interface TickMessage {
   step: number;
   vessels: VesselSnapshot[];
@@ -187,8 +165,6 @@ export interface TickMessage {
   /** Flat row-major array of W ∈ [0,1] values, length = weather_grid_size² */
   weather_grid?: number[];
   weather_grid_size?: number;
-  weather_channels?: WeatherChannels;
-  weather_meta?: WeatherMeta;
   world_width_nm?: number;
   world_height_nm?: number;
 }
