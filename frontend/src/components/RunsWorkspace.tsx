@@ -26,6 +26,7 @@ export default function RunsWorkspace({ pb }: { pb: PB }) {
   const [posting, setPosting] = useState(false);
   const [routes, setRoutes] = useState<RoutePath[]>([]);
   const [showRoutes, setShowRoutes] = useState(true);
+  const [showWeather, setShowWeather] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const running = status?.running === true;
@@ -160,6 +161,13 @@ export default function RunsWorkspace({ pb }: { pb: PB }) {
             mobPersons={pb.currentTick?.mob_persons ?? []}
             mobAgents={pb.currentTick?.mob_agents ?? []}
             storm={pb.currentTick?.storm ?? null}
+            weatherGrid={pb.currentTick?.weather_grid ?? []}
+            weatherGridSize={pb.currentTick?.weather_grid_size ?? 0}
+            showWeather={showWeather}
+            latMin={pb.currentTick?.bbox?.lat_min}
+            latMax={pb.currentTick?.bbox?.lat_max}
+            lonMin={pb.currentTick?.bbox?.lon_min}
+            lonMax={pb.currentTick?.bbox?.lon_max}
             transitionMs={pb.speedMs}
           />
           {!pb.selectedRunId && (
@@ -169,15 +177,10 @@ export default function RunsWorkspace({ pb }: { pb: PB }) {
               </div>
             </div>
           )}
-          <button
-            onClick={() => setShowRoutes((s) => !s)}
-            style={{
-              position: "absolute", top: 10, right: 10, zIndex: 2,
-              padding: "5px 10px", fontSize: 10, fontWeight: 600,
-              background: "#0d1526cc", color: showRoutes ? "#60a5fa" : "#64748b",
-              border: "1px solid #1e3a5f", borderRadius: 6, cursor: "pointer",
-            }}
-          >〜 Routes</button>
+          <div style={{ position: "absolute", top: 10, right: 10, zIndex: 2, display: "flex", gap: 6 }}>
+            <LayerToggle on={showWeather} onClick={() => setShowWeather((s) => !s)} activeColor="#fbbf24" label="⛈ Weather" />
+            <LayerToggle on={showRoutes} onClick={() => setShowRoutes((s) => !s)} activeColor="#60a5fa" label="〜 Routes" />
+          </div>
         </div>
 
         <KpiStrip pb={pb} />
@@ -285,6 +288,19 @@ function Scrubber({ pb }: { pb: PB }) {
         {SPEED_PRESETS.map((s) => <option key={s.label} value={s.ms}>{s.label}</option>)}
       </select>
     </div>
+  );
+}
+
+function LayerToggle({ on, onClick, activeColor, label }: { on: boolean; onClick: () => void; activeColor: string; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "5px 10px", fontSize: 10, fontWeight: 600,
+        background: "#0d1526cc", color: on ? activeColor : "#64748b",
+        border: "1px solid #1e3a5f", borderRadius: 6, cursor: "pointer",
+      }}
+    >{label}</button>
   );
 }
 

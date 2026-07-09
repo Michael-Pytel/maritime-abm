@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import DeckGL from "@deck.gl/react";
 import { Map } from "react-map-gl/maplibre";
-import { ScatterplotLayer, IconLayer, PathLayer } from "deck.gl";
+import { ScatterplotLayer, IconLayer, PathLayer, BitmapLayer } from "deck.gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   VesselSnapshot, Port, CollisionEvent, Storm,
@@ -62,6 +62,18 @@ function vesselColor(v: VesselSnapshot): RGB {
   }
 }
 
+/** Hazard colour ramp: transparent (calm) → amber → deep red (severe). */
+function hazardToRgba(w: number): [number, number, number, number] {
+  if (w <= 0.02) return [0, 0, 0, 0];
+  const t = Math.min(w, 1);
+  return [
+    Math.round(251 - t * (251 - 127)),
+    Math.round(191 - t * (191 - 29)),
+    Math.round(36 - t * (36 - 29)),
+    Math.round(t * 210),
+  ];
+}
+
 const RESCUE_PHASE_LABEL: Record<RescueAgentSnapshot["phase"], string> = {
   mobilising: "Mobilising at base",
   transiting: "Transiting to datum",
@@ -105,6 +117,14 @@ interface Props {
   currentStep?: number;
   storm?: Storm | null;
   showRoutes?: boolean;
+  /** Flat row-major hazard grid W∈[0,1] and its side length, for the overlay. */
+  weatherGrid?: number[];
+  weatherGridSize?: number;
+  showWeather?: boolean;
+  latMin?: number;
+  latMax?: number;
+  lonMin?: number;
+  lonMax?: number;
   /** Duration (ms) deck.gl glides each moving object between playback frames.
    *  Match it to the playback frame interval so motion is continuous. */
   transitionMs?: number;
@@ -122,8 +142,30 @@ export default function MapGL({
   currentStep = 0,
   storm = null,
   showRoutes = true,
+  weatherGrid = [],
+  weatherGridSize = 0,
+  showWeather = true,
+  latMin = 50.5,
+  latMax = 66.0,
+  lonMin = -5.0,
+  lonMax = 31.0,
   transitionMs = 250,
 }: Props) {
+  // Hazard field as an RGBA texture (deck.gl bilinearly smooths it on the GPU).
+  const weatherImage = useMemo(() => {
+    if (!showWeather || !weatherGrid.length || !weatherGridSize) return null;
+    const s = weatherGridSize;
+    const data = new Uint8ClampedArray(s * s * 4);
+    for (let row = 0; row < s; row++) {
+      for (let col = 0; col < s; col++) {
+        const w = weatherGrid[(s - 1 - row) * s + col] ?? 0; // grid row 0 = south
+        const [r, g, b, a] = hazardToRgba(w);
+        const i = (row * s + col) * 4;
+        data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = a;
+      }
+    }
+    return new ImageData(data, s, s);
+  }, [weatherGrid, weatherGridSize, showWeather]);
   // GPU position-tween applied to every moving layer (stable across renders).
   const move = useMemo(
     () => ({ getPosition: { type: "interpolation" as const, duration: transitionMs } }),
@@ -131,6 +173,18 @@ export default function MapGL({
   );
   const layers = useMemo(() => {
     const ls: unknown[] = [];
+
+    // Weather hazard field — under everything else.
+    if (weatherImage) {
+      ls.push(
+        new BitmapLayer({
+          id: "weather",
+          image: weatherImage,
+          bounds: [lonMin, latMin, lonMax, latMax],
+          opacity: 0.5,
+        }),
+      );
+    }
 
     // Faint AIS route network (context, like MarineTraffic).
     if (showRoutes && routes.length > 0) {
@@ -314,7 +368,7 @@ export default function MapGL({
     );
 
     return ls;
-  }, [vessels, ports, routes, collisionEvents, rescueAgents, wrecks, mobPersons, mobAgents, storm, showRoutes, currentStep, move]);
+  }, [vessels, ports, routes, collisionEvents, rescueAgents, wrecks, mobPersons, mobAgents, storm, showRoutes, currentStep, move, weatherImage, lonMin, latMin, lonMax, latMax]);
 
   return (
     <>

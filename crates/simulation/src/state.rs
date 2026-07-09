@@ -1113,8 +1113,17 @@ impl SimState {
     // ── Snapshot / log builders ───────────────────────────────────────────────
 
     #[must_use]
-    #[allow(clippy::too_many_lines)]
     pub fn build_snapshot(&self) -> String {
+        self.build_snapshot_ext(WeatherDetail::Full)
+    }
+
+    /// Builds a snapshot JSON. `weather` controls how much of the 2500-cell
+    /// weather field is embedded: the live view needs the `Full` grid, but the
+    /// playback log downsamples it (`Coarse`) so logs — and the memory the
+    /// frontend holds during playback — stay small while still supporting the
+    /// hazard overlay.
+    #[allow(clippy::too_many_lines)]
+    fn build_snapshot_ext(&self, weather: WeatherDetail) -> String {
         use serde_json::{json, Value};
 
         let w_w = self.config.world_width_nm;
@@ -1240,6 +1249,18 @@ impl SimState {
             })
             .collect();
 
+        let (weather_grid, weather_grid_size) = match weather {
+            WeatherDetail::Full => (
+                serde_json::to_value(&self.weather.hazard).unwrap_or_else(|_| json!([])),
+                json!(crate::weather::GRID_CELLS),
+            ),
+            WeatherDetail::Coarse => {
+                let (grid, size) =
+                    downsample_hazard(&self.weather.hazard, crate::weather::GRID_CELLS, 2);
+                (json!(grid), json!(size))
+            }
+        };
+
         serde_json::to_string(&json!({
             "step": self.step,
             "vessels": vessels,
@@ -1254,8 +1275,8 @@ impl SimState {
             "comms_log": comms_log,
             "collision_events": collision_events,
             "storm": storm_json,
-            "weather_grid": self.weather.hazard,
-            "weather_grid_size": crate::weather::GRID_CELLS,
+            "weather_grid": weather_grid,
+            "weather_grid_size": weather_grid_size,
             "storm_centers": [],
             "rescue_agents": rescue_agents,
             "shore_stations": shore_stations,
@@ -1293,8 +1314,10 @@ impl SimState {
     }
 
     fn build_log_line(&self) -> String {
-        // Reuse the full snapshot so playback has every field the live view has.
-        self.build_snapshot()
+        // Log a downsampled (25×25) weather field so playback can still draw a
+        // hazard overlay while keeping each frame — and the RAM the frontend
+        // holds during playback — a fraction of the full 50×50 grid.
+        self.build_snapshot_ext(WeatherDetail::Coarse)
     }
 
     #[must_use]
@@ -1346,6 +1369,35 @@ fn dist2(a: (f64, f64), b: (f64, f64)) -> f64 {
     let dx = a.0 - b.0;
     let dy = a.1 - b.1;
     dx * dx + dy * dy
+}
+
+/// How much of the weather field a snapshot embeds.
+#[derive(Clone, Copy)]
+enum WeatherDetail {
+    /// Full 50×50 hazard grid (live view).
+    Full,
+    /// 2×-downsampled 25×25 grid (playback logs — smaller, still a smooth overlay).
+    Coarse,
+}
+
+/// Averages a flat `n×n` row-major grid into `(n/factor)×(n/factor)` blocks.
+fn downsample_hazard(grid: &[f64], n: usize, factor: usize) -> (Vec<f64>, usize) {
+    let m = n / factor;
+    #[allow(clippy::cast_precision_loss)]
+    let inv = 1.0 / (factor * factor) as f64;
+    let mut out = vec![0.0; m * m];
+    for r in 0..m {
+        for c in 0..m {
+            let mut sum = 0.0;
+            for dr in 0..factor {
+                for dc in 0..factor {
+                    sum += grid[(r * factor + dr) * n + (c * factor + dc)];
+                }
+            }
+            out[r * m + c] = sum * inv;
+        }
+    }
+    (out, m)
 }
 
 /// Build a SIMCOL ship descriptor from a vessel's kinematics and its

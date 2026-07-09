@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { TickMessage, RunManifest, WeatherChannels } from "../types";
 
 const API = "http://localhost:3000";
@@ -114,28 +114,6 @@ export function usePlayback() {
     ? (runs.find(r => r.run_id === selectedRunId) ?? null)
     : null;
 
-  // Use real weather_channels from the log if available, otherwise approximate from hazard grid.
-  const derivedWeatherChannels = useMemo(() => {
-    const channels = currentTick?.weather_channels;
-    if (channels && channels.wind?.length) return channels;
-    const grid = currentTick?.weather_grid;
-    if (!grid?.length) return null;
-    return {
-      hazard:          grid,
-      sea_state:       grid.map((h: number) => h * 0.8),
-      wind:            grid.map((h: number) => h * 0.6),
-      wind_direction:  grid.map(() => Math.PI / 4),
-      visibility:      grid.map((h: number) => Math.max(0, 1 - h * 0.7)),
-      precipitation:   grid.map((h: number) => h * 0.5),
-      pressure:        grid.map((h: number) => 1013 - h * 30),
-      tide:            grid.map(() => 0),
-      surge:           grid.map((h: number) => h * 0.3),
-      total_water_level: grid.map((h: number) => h * 0.3),
-      wave_height:     grid.map((h: number) => h * 8),
-      wave_period:     grid.map(() => 8),
-    };
-  }, [currentTick?.weather_grid, currentTick?.weather_channels]);
-
   return {
     runs,
     refreshRuns,
@@ -157,6 +135,5 @@ export function usePlayback() {
     toggleLayer,
     currentTick,
     manifest,
-    derivedWeatherChannels,
   };
 }
