@@ -1,79 +1,47 @@
-import { useState, useEffect, Component } from "react";
+import { useState, useMemo, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { useSimSocket } from "./hooks/useSimSocket";
 import { usePlayback } from "./hooks/usePlayback";
-import type { KpiSnapshot, TelemetrySnapshot, CollisionEvent, Storm, RescueAgentSnapshot, WreckMarker, MobPersonSnapshot, MobAgentSnapshot } from "./types";
-import SimMap from "./components/SimMap";
-import KpiPanel from "./components/KpiPanel";
-import ControlPanel from "./components/ControlPanel";
-import VesselStatusChart from "./components/VesselStatusChart";
+import type { KpiSnapshot, TelemetrySnapshot, VesselMsg } from "./types";
 import BatchPanel from "./components/BatchPanel";
 import StatsPanel from "./components/StatsPanel";
-import PlaybackControls from "./components/PlaybackControls";
+import RunsWorkspace from "./components/RunsWorkspace";
 import TelemetryPanel from "./components/TelemetryPanel";
 import PathsPanel from "./components/PathsPanel";
 import CommsLog from "./components/CommsLog";
-import type { VesselMsg } from "./types";
 
-const MAX_HISTORY = 300;
-const EMPTY: never[] = [];
-type Tab = "live" | "batch" | "stats" | "playback" | "telemetry" | "paths" | "comms";
+type Tab = "runs" | "telemetry" | "comms" | "batch" | "stats" | "paths";
 
 const TAB_CONFIG: { id: Tab; label: string; icon: string }[] = [
-  { id: "live",      label: "Live Simulation", icon: "⬤" },
-  { id: "comms",     label: "Comms",           icon: "📡" },
-  { id: "batch",     label: "Batch Runs",      icon: "⚙" },
-  { id: "stats",     label: "Statistics",      icon: "▦" },
-  { id: "playback",  label: "Playback",        icon: "▶" },
-  { id: "telemetry", label: "Telemetry",       icon: "≋" },
-  { id: "paths",     label: "AIS Paths",       icon: "〜" },
+  { id: "runs",      label: "Runs",          icon: "◎" },
+  { id: "telemetry", label: "Telemetry",     icon: "≋" },
+  { id: "comms",     label: "Comms",         icon: "📡" },
+  { id: "batch",     label: "Batch Results", icon: "⚙" },
+  { id: "stats",     label: "Statistics",    icon: "▦" },
+  { id: "paths",     label: "AIS Paths",     icon: "〜" },
 ];
 
 type TelemetryPoint = TelemetrySnapshot & { step: number };
 
 export default function App() {
-  const { tick, connected } = useSimSocket();
-  const [kpiHistory, setKpiHistory]             = useState<KpiSnapshot[]>([]);
-  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryPoint[]>([]);
-  const [tab, setTab] = useState<Tab>("live");
-
+  const [tab, setTab] = useState<Tab>("runs");
   const playback = usePlayback();
+  const ticks = playback.ticks;
 
-  useEffect(() => {
-    if (!tick) return;
-    // Defer to a microtask so no setState is called synchronously in the effect body.
-    Promise.resolve().then(() => {
-      setKpiHistory(prev => {
-        if (prev.length > 0 && prev[prev.length - 1].step === tick.step) return prev;
-        const next = prev.length >= MAX_HISTORY ? prev.slice(1) : [...prev];
-        next.push(tick.kpis);
-        return next;
-      });
-      if (tick.telemetry) {
-        const point: TelemetryPoint = { ...tick.telemetry, step: tick.step };
-        setTelemetryHistory(prev => {
-          const next = prev.length >= MAX_HISTORY ? prev.slice(1) : [...prev];
-          next.push(point);
-          return next;
-        });
-      }
-    });
-  }, [tick]);
+  // Telemetry / Comms are driven by the currently selected playback run.
+  const kpiHistory = useMemo<KpiSnapshot[]>(
+    () => ticks.map(t => t.kpis).filter(Boolean),
+    [ticks],
+  );
+  const telemetryHistory = useMemo<TelemetryPoint[]>(
+    () => ticks.filter(t => t.telemetry).map(t => ({ ...(t.telemetry as TelemetrySnapshot), step: t.step })),
+    [ticks],
+  );
+  const commsLog = useMemo<VesselMsg[]>(() => ticks.flatMap(t => t.comms_log ?? []), [ticks]);
 
-  const vessels    = tick?.vessels    ?? EMPTY;
-  const step       = tick?.step       ?? 0;
-  const ports      = tick?.ports      ?? EMPTY;
-  const latestKpis = tick?.kpis;
-  const commsLog: VesselMsg[] = tick?.comms_log ?? EMPTY;
-  const collisionEvents: CollisionEvent[] = tick?.collision_events ?? EMPTY;
-  const rescueAgents: RescueAgentSnapshot[] = tick?.rescue_agents ?? EMPTY;
-  const wrecks: WreckMarker[] = tick?.wrecks ?? EMPTY;
-  const mobPersons: MobPersonSnapshot[] = tick?.mob_persons ?? EMPTY;
-  const mobAgents: MobAgentSnapshot[] = tick?.mob_agents ?? EMPTY;
-  const storm: Storm | null = tick?.storm ?? null;
-  const weatherGrid: number[] = tick?.weather_grid ?? EMPTY;
-  const weatherGridSize: number = tick?.weather_grid_size ?? 0;
-  const bbox = tick?.bbox;
+  const latestKpis = playback.currentTick?.kpis;
+  const runName = playback.manifest
+    ? `${playback.manifest.scenario} · ${playback.manifest.method} · #${playback.manifest.seed}`
+    : null;
 
   return (
     <div style={{
@@ -107,8 +75,8 @@ export default function App() {
 
         {latestKpis && (
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-            <QuickKpi label="Collisions"  value={latestKpis.collision_per_1k_hrs} color="#f87171" fmt={v => v.toFixed(3)} suffix="/1k" />
-            <QuickKpi label="Avoiding"    value={tick?.telemetry?.avoiding_count ?? 0} color="#f59e0b" fmt={v => String(v)} />
+            <QuickKpi label="Collisions" value={latestKpis.collision_per_1k_hrs} color="#f87171" fmt={v => v.toFixed(3)} suffix="/1k" />
+            <QuickKpi label="Survival" value={latestKpis.survival_ratio} color="#34d399" fmt={v => v.toFixed(3)} />
           </div>
         )}
 
@@ -116,23 +84,15 @@ export default function App() {
 
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
-          padding: "4px 10px",
-          background: connected ? "#052e16" : "#450a0a",
-          border: `1px solid ${connected ? "#22c55e" : "#ef4444"}40`,
+          padding: "4px 12px",
+          background: runName ? "#0c1f3a" : "#111827",
+          border: `1px solid ${runName ? "#1d4ed8" : "#1e293b"}`,
           borderRadius: 20, fontSize: 11,
-          color: connected ? "#22c55e" : "#f87171", fontWeight: 600,
+          color: runName ? "#93c5fd" : "#64748b", fontWeight: 600,
+          maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
-          <span style={{
-            width: 6, height: 6, borderRadius: "50%",
-            background: connected ? "#22c55e" : "#ef4444",
-          }} />
-          {connected ? `Step ${step.toLocaleString()}` : "Disconnected"}
+          {runName ?? "No run selected"}
         </div>
-      </div>
-
-      {/* Control panel */}
-      <div style={{ background: "#0d1526", borderBottom: "1px solid #1e293b", flexShrink: 0 }}>
-        <ControlPanel connected={connected} step={step} />
       </div>
 
       {/* Tab bar */}
@@ -144,7 +104,7 @@ export default function App() {
         {TAB_CONFIG.map(({ id, label, icon }) => (
           <button
             key={id}
-            onClick={() => { setTab(id); if (id === "playback") playback.refreshRuns(); }}
+            onClick={() => setTab(id)}
             style={{
               padding: "10px 18px", background: "transparent",
               color: tab === id ? "#f1f5f9" : "#475569",
@@ -156,9 +116,7 @@ export default function App() {
               transition: "color 0.15s", letterSpacing: "0.01em",
             }}
           >
-            <span style={{ fontSize: id === "live" ? 8 : 12, color: tab === id ? "#3b82f6" : "#334155" }}>
-              {icon}
-            </span>
+            <span style={{ fontSize: 12, color: tab === id ? "#3b82f6" : "#334155" }}>{icon}</span>
             {label}
           </button>
         ))}
@@ -167,30 +125,21 @@ export default function App() {
       {/* Content */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
 
-        {tab === "live" && (
-          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 300px", overflow: "hidden" }}>
-            <div style={{ position: "relative", overflow: "hidden" }}>
-              <SimMap
-                vessels={vessels} ports={ports}
-                collisionEvents={collisionEvents} currentStep={step}
-                rescueAgents={rescueAgents} wrecks={wrecks}
-                mobPersons={mobPersons} mobAgents={mobAgents}
-                storm={storm}
-                weatherGrid={weatherGrid} weatherGridSize={weatherGridSize}
-                latMin={bbox?.lat_min} latMax={bbox?.lat_max}
-                lonMin={bbox?.lon_min} lonMax={bbox?.lon_max}
-              />
-            </div>
-            <div style={{
-              overflowY: "auto", background: "#0d1526",
-              borderLeft: "1px solid #1e293b",
-              padding: "14px 12px",
-              display: "flex", flexDirection: "column", gap: 14,
-            }}>
-              <VesselStatusChart vessels={vessels} />
-              <div style={{ height: 1, background: "#1e293b" }} />
-              <KpiPanel history={kpiHistory} />
-            </div>
+        {tab === "runs" && <RunsWorkspace pb={playback} />}
+
+        {tab === "telemetry" && (
+          <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", background: "#0a0f1e" }}>
+            {ticks.length === 0
+              ? <EmptyHint text="Select a run in the Runs tab to see its telemetry." />
+              : <TelemetryPanel kpiHistory={kpiHistory} telemetryHistory={telemetryHistory} />}
+          </div>
+        )}
+
+        {tab === "comms" && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {ticks.length === 0
+              ? <div style={{ padding: "24px 28px" }}><EmptyHint text="Select a run in the Runs tab to see its comms log." /></div>
+              : <CommsLog messages={commsLog} />}
           </div>
         )}
 
@@ -206,70 +155,19 @@ export default function App() {
           </div>
         )}
 
-        {tab === "playback" && (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 220px", overflow: "hidden" }}>
-              <div style={{ position: "relative", overflow: "hidden" }}>
-                <SimMap
-                  vessels={playback.currentTick?.vessels ?? []}
-                  ports={playback.currentTick?.ports ?? []}
-                  collisionEvents={playback.currentTick?.collision_events ?? []}
-                  currentStep={playback.currentTick?.step ?? 0}
-                  rescueAgents={playback.currentTick?.rescue_agents ?? []}
-                  wrecks={playback.currentTick?.wrecks ?? []}
-                  mobPersons={playback.currentTick?.mob_persons ?? []}
-                  mobAgents={playback.currentTick?.mob_agents ?? []}
-                  storm={playback.currentTick?.storm ?? null}
-                  weatherGrid={playback.currentTick?.weather_grid ?? []}
-                  weatherGridSize={playback.currentTick?.weather_grid_size ?? 0}
-                  latMin={playback.currentTick?.bbox?.lat_min}
-                  latMax={playback.currentTick?.bbox?.lat_max}
-                  lonMin={playback.currentTick?.bbox?.lon_min}
-                  lonMax={playback.currentTick?.bbox?.lon_max}
-                />
-              </div>
-            </div>
-            <PlaybackControls
-              runs={playback.runs}
-              onRefreshRuns={playback.refreshRuns}
-              selectedRunId={playback.selectedRunId}
-              onSelectRun={playback.setSelectedRunId}
-              tickCount={playback.ticks.length}
-              currentIdx={playback.currentIdx}
-              onSeek={playback.setCurrentIdx}
-              playing={playback.playing}
-              onTogglePlay={() => playback.setPlaying(p => !p)}
-              speedMs={playback.speedMs}
-              onSetSpeed={playback.setSpeedMs}
-              stride={playback.stride}
-              onSetStride={playback.setStride}
-              loading={playback.loading}
-              currentTick={playback.currentTick}
-              weatherChannel={playback.weatherChannel}
-              onSetWeatherChannel={playback.setWeatherChannel}
-            />
-          </div>
-        )}
-
-        {tab === "telemetry" && (
-          <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", background: "#0a0f1e" }}>
-            <TelemetryPanel kpiHistory={kpiHistory} telemetryHistory={telemetryHistory} />
-          </div>
-        )}
-
         {tab === "paths" && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <PathsPanel />
           </div>
         )}
-
-        {tab === "comms" && (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <CommsLog messages={commsLog} />
-          </div>
-        )}
       </div>
     </div>
+  );
+}
+
+function EmptyHint({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6, maxWidth: 480 }}>{text}</div>
   );
 }
 
