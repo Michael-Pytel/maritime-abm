@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import DeckGL from "@deck.gl/react";
 import { Map } from "react-map-gl/maplibre";
-import { ScatterplotLayer, IconLayer, PathLayer, BitmapLayer } from "deck.gl";
+import { ScatterplotLayer, IconLayer, PathLayer, BitmapLayer, WebMercatorViewport } from "deck.gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   VesselSnapshot, Port, CollisionEvent, Storm,
@@ -29,7 +29,59 @@ const DARK_STYLE = {
   ],
 };
 
-const INITIAL_VIEW = { longitude: 13, latitude: 58, zoom: 4.4, pitch: 0, bearing: 0 };
+// ── Simulated domain (matches crates/simulation/src/ais.rs bbox) ──────────────
+const DOMAIN = { lonMin: -5.0, latMin: 50.5, lonMax: 31.0, latMax: 66.0 };
+const MARGIN = 0.05;          // small breathing room beyond the domain edges
+const MAX_ZOOM = 9;
+// Domain expanded by the margin — the hard clamp box for panning.
+const B = {
+  lonMin: DOMAIN.lonMin - (DOMAIN.lonMax - DOMAIN.lonMin) * MARGIN,
+  lonMax: DOMAIN.lonMax + (DOMAIN.lonMax - DOMAIN.lonMin) * MARGIN,
+  latMin: DOMAIN.latMin - (DOMAIN.latMax - DOMAIN.latMin) * MARGIN,
+  latMax: DOMAIN.latMax + (DOMAIN.latMax - DOMAIN.latMin) * MARGIN,
+};
+
+interface ViewState {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  pitch?: number;
+  bearing?: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** The view that frames the whole domain (all ports) for the given viewport size. */
+function fitViewState(width: number, height: number): ViewState {
+  const vp = new WebMercatorViewport({ width: Math.max(1, width), height: Math.max(1, height) });
+  const { longitude, latitude, zoom } = vp.fitBounds(
+    [[DOMAIN.lonMin, DOMAIN.latMin], [DOMAIN.lonMax, DOMAIN.latMax]],
+    { padding: 28 },
+  );
+  return { longitude, latitude, zoom, pitch: 0, bearing: 0 };
+}
+
+/** Clamp a proposed view so it never leaves the domain (zoom ≥ all-ports fit). */
+function constrainViewState(vs: ViewState, width: number, height: number, minZoom: number): ViewState {
+  const zoom = clamp(vs.zoom, minZoom, MAX_ZOOM);
+  if (width < 2 || height < 2) return { ...vs, zoom, pitch: 0, bearing: 0 };
+  // Guard against out-of-Mercator-range input (WebMercatorViewport asserts |lat|<85);
+  // the centre is domain-clamped below regardless, this just keeps span-measurement safe.
+  const safeLon = clamp(vs.longitude, -180, 180);
+  const safeLat = clamp(vs.latitude, -85, 85);
+  const vp = new WebMercatorViewport({ longitude: safeLon, latitude: safeLat, zoom, width, height, pitch: 0, bearing: 0 });
+  const tl = vp.unproject([0, 0]);
+  const br = vp.unproject([width, height]);
+  const halfLon = Math.abs(br[0] - tl[0]) / 2;
+  const halfLat = Math.abs(tl[1] - br[1]) / 2;
+  const longitude = (B.lonMax - B.lonMin) <= 2 * halfLon
+    ? (B.lonMin + B.lonMax) / 2
+    : clamp(vs.longitude, B.lonMin + halfLon, B.lonMax - halfLon);
+  const latitude = (B.latMax - B.latMin) <= 2 * halfLat
+    ? (B.latMin + B.latMax) / 2
+    : clamp(vs.latitude, B.latMin + halfLat, B.latMax - halfLat);
+  return { longitude, latitude, zoom, pitch: 0, bearing: 0 };
+}
 
 const COLLISION_FADE_TICKS = 40;
 
@@ -49,6 +101,12 @@ const C = {
   mobAgent: [251, 146, 60] as RGB,
   mobPerson: [252, 165, 165] as RGB,
   route: [56, 116, 168] as RGB,
+};
+/** Per-vessel-type route tint (mirrors theme/tokens TYPE_HEX). */
+const ROUTE_TYPE: Record<string, RGB> = {
+  cargo: [59, 130, 246],
+  passenger: [34, 197, 94],
+  tanker: [249, 115, 22],
 };
 
 function vesselColor(v: VesselSnapshot): RGB {
@@ -105,6 +163,12 @@ export interface RoutePath {
   path: [number, number][];
 }
 
+/** Imperative camera controls exposed to the map toolbar. */
+export interface MapHandle {
+  fitDomain: () => void;
+  zoomBy: (delta: number) => void;
+}
+
 interface Props {
   vessels: VesselSnapshot[];
   ports?: Port[];
@@ -117,6 +181,7 @@ interface Props {
   currentStep?: number;
   storm?: Storm | null;
   showRoutes?: boolean;
+  showLegend?: boolean;
   /** Flat row-major hazard grid W∈[0,1] and its side length, for the overlay. */
   weatherGrid?: number[];
   weatherGridSize?: number;
@@ -130,7 +195,7 @@ interface Props {
   transitionMs?: number;
 }
 
-export default function MapGL({
+const MapGL = forwardRef<MapHandle, Props>(function MapGL({
   vessels,
   ports = [],
   routes = [],
@@ -142,15 +207,59 @@ export default function MapGL({
   currentStep = 0,
   storm = null,
   showRoutes = true,
+  showLegend = true,
   weatherGrid = [],
   weatherGridSize = 0,
   showWeather = true,
-  latMin = 50.5,
-  latMax = 66.0,
-  lonMin = -5.0,
-  lonMax = 31.0,
+  latMin = DOMAIN.latMin,
+  latMax = DOMAIN.latMax,
+  lonMin = DOMAIN.lonMin,
+  lonMax = DOMAIN.lonMax,
   transitionMs = 250,
-}: Props) {
+}: Props, ref) {
+  // ── Controlled + domain-constrained camera ───────────────────────────────
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dimsRef = useRef({ width: 0, height: 0 });
+  const minZoomRef = useRef(3.6);
+  const initedRef = useRef(false);
+  const [viewState, setViewState] = useState<ViewState>({ longitude: 12.5, latitude: 58.3, zoom: 4.1, pitch: 0, bearing: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const apply = () => {
+      const w = el.clientWidth, h = el.clientHeight;
+      if (w < 2 || h < 2) return;
+      dimsRef.current = { width: w, height: h };
+      const fit = fitViewState(w, h);
+      minZoomRef.current = fit.zoom;
+      setViewState(prev => {
+        if (!initedRef.current) { initedRef.current = true; return fit; }
+        return constrainViewState(prev, w, h, fit.zoom);
+      });
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleViewStateChange = useCallback((params: { viewState: ViewState }) => {
+    const { width, height } = dimsRef.current;
+    setViewState(constrainViewState(params.viewState, width, height, minZoomRef.current));
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    fitDomain: () => {
+      const { width, height } = dimsRef.current;
+      setViewState(fitViewState(width, height));
+    },
+    zoomBy: (delta: number) => {
+      const { width, height } = dimsRef.current;
+      setViewState(prev => constrainViewState({ ...prev, zoom: prev.zoom + delta }, width, height, minZoomRef.current));
+    },
+  }), []);
+
   // Hazard field as an RGBA texture (deck.gl bilinearly smooths it on the GPU).
   const weatherImage = useMemo(() => {
     if (!showWeather || !weatherGrid.length || !weatherGridSize) return null;
@@ -186,19 +295,20 @@ export default function MapGL({
       );
     }
 
-    // Faint AIS route network (context, like MarineTraffic).
+    // Faint AIS route network (context, like MarineTraffic), tinted by type.
     if (showRoutes && routes.length > 0) {
       ls.push(
         new PathLayer<RoutePath>({
           id: "routes",
           data: routes,
           getPath: (d) => d.path,
-          getColor: [...C.route, 90] as [number, number, number, number],
+          getColor: (d) => [...(ROUTE_TYPE[d.vessel_type.toLowerCase()] ?? C.route), 80] as [number, number, number, number],
           getWidth: 1,
           widthUnits: "pixels",
           widthMinPixels: 1,
           jointRounded: true,
           capRounded: true,
+          pickable: true,
         }),
       );
     }
@@ -371,20 +481,23 @@ export default function MapGL({
   }, [vessels, ports, routes, collisionEvents, rescueAgents, wrecks, mobPersons, mobAgents, storm, showRoutes, currentStep, move, weatherImage, lonMin, latMin, lonMax, latMax]);
 
   return (
-    <>
+    <div ref={containerRef} style={{ position: "absolute", inset: 0 }}>
       <DeckGL
-        initialViewState={INITIAL_VIEW}
-        controller
+        viewState={viewState as never}
+        onViewStateChange={handleViewStateChange as never}
+        controller={{ dragRotate: false, touchRotate: false } as never}
         layers={layers as never}
         getTooltip={getTooltip}
         style={{ position: "absolute", inset: "0" }}
       >
         <Map reuseMaps mapStyle={DARK_STYLE as never} />
       </DeckGL>
-      <MapLegend />
-    </>
+      {showLegend && <MapLegend />}
+    </div>
   );
-}
+});
+
+export default MapGL;
 
 function rgb(c: RGB, a = 1) {
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;

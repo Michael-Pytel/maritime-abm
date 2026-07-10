@@ -5,26 +5,12 @@ import {
   PolarGrid, PolarAngleAxis,
 } from "recharts";
 import type { HypothesisResult, BatchResult } from "../types";
+import { KPI_META, METHOD_COLORS } from "../theme/tokens";
 
 const API = "http://localhost:3000";
 
-const KPI_META: Record<string, { label: string; unit: string; higherBetter: boolean; color: string }> = {
-  survival_ratio:       { label: "Survival Ratio",      unit: "",        higherBetter: true,  color: "#34d399" },
-  fatal_per_1k_hrs:     { label: "Fatalities /1k hrs",  unit: "/1k hrs", higherBetter: false, color: "#f87171" },
-  mean_p_prep:          { label: "Mean Preparedness",   unit: "",        higherBetter: true,  color: "#60a5fa" },
-  collision_per_1k_hrs: { label: "Collisions /1k hrs",  unit: "/1k hrs", higherBetter: false, color: "#fb923c" },
-  avg_tta_hours:        { label: "Avg Time-to-Rescue",  unit: "hrs",     higherBetter: false, color: "#fbbf24" },
-  evac_activation_rate: { label: "Evac Activation Rate", unit: "",       higherBetter: false, color: "#c084fc" },
-};
-
 const SCENARIOS = ["CalmPassage", "StormCorridor", "BlindShore", "DeepWaterRescue"];
 const METHODS   = ["ProposedSystem", "BaselineA", "BaselineB"];
-
-const METHOD_COLORS: Record<string, string> = {
-  ProposedSystem: "#60a5fa",
-  BaselineA:      "#94a3b8",
-  BaselineB:      "#fbbf24",
-};
 
 type SortKey = "effect" | "pvalue" | "kpi";
 type View = "table" | "radar" | "results";
@@ -103,11 +89,11 @@ function BoxPlotChart({ series, height = 140 }: {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function StatsPanel() {
+export default function StatsPanel({ defaultScenario }: { defaultScenario?: string }) {
   const [tests, setTests]     = useState<HypothesisResult[]>([]);
   const [results, setResults] = useState<BatchResult[]>([]);
   const [filterSig, setFilterSig] = useState(false);
-  const [scenario, setScenario]   = useState("CalmPassage");
+  const [scenario, setScenario]   = useState(defaultScenario ?? "CalmPassage");
   const [sortBy, setSortBy]       = useState<SortKey>("effect");
   const [loading, setLoading]     = useState(true);
   const [view, setView]           = useState<View>("table");
