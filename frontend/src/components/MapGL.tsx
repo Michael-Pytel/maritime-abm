@@ -31,7 +31,7 @@ const DARK_STYLE = {
 
 // ── Simulated domain (matches crates/simulation/src/ais.rs bbox) ──────────────
 const DOMAIN = { lonMin: -5.0, latMin: 50.5, lonMax: 31.0, latMax: 66.0 };
-const MARGIN = 0.05;          // small breathing room beyond the domain edges
+const MARGIN = 0;             // no slack — the domain edge is the hard limit
 const MAX_ZOOM = 9;
 // Domain expanded by the margin — the hard clamp box for panning.
 const B = {
@@ -51,14 +51,26 @@ interface ViewState {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** The view that frames the whole domain (all ports) for the given viewport size. */
+/**
+ * The min-zoom view: the domain COVERS the viewport (fills both axes, cropping
+ * the overflow) rather than being contained inside it — so there is never any
+ * blank map beyond the weather overlay. `fitBounds` gives a "contain" fit; we
+ * then bump the zoom until the domain also fills the slack axis.
+ */
 function fitViewState(width: number, height: number): ViewState {
-  const vp = new WebMercatorViewport({ width: Math.max(1, width), height: Math.max(1, height) });
-  const { longitude, latitude, zoom } = vp.fitBounds(
+  const w = Math.max(1, width), h = Math.max(1, height);
+  const base = new WebMercatorViewport({ width: w, height: h }).fitBounds(
     [[DOMAIN.lonMin, DOMAIN.latMin], [DOMAIN.lonMax, DOMAIN.latMax]],
-    { padding: 28 },
+    { padding: 0 },
   );
-  return { longitude, latitude, zoom, pitch: 0, bearing: 0 };
+  const vp = new WebMercatorViewport({ longitude: base.longitude, latitude: base.latitude, zoom: base.zoom, width: w, height: h });
+  const tl = vp.project([DOMAIN.lonMin, DOMAIN.latMax]);
+  const br = vp.project([DOMAIN.lonMax, DOMAIN.latMin]);
+  const spanX = Math.max(1, Math.abs(br[0] - tl[0]));
+  const spanY = Math.max(1, Math.abs(br[1] - tl[1]));
+  const bump = Math.max(0, Math.log2(Math.max(w / spanX, h / spanY)));
+  const zoom = Math.min(MAX_ZOOM, base.zoom + bump);
+  return { longitude: base.longitude, latitude: base.latitude, zoom, pitch: 0, bearing: 0 };
 }
 
 /** Clamp a proposed view so it never leaves the domain (zoom ≥ all-ports fit). */
@@ -519,10 +531,11 @@ function LegendDot({ color, label, ring }: { color: RGB; label: string; ring?: R
 function MapLegend() {
   return (
     <div style={{
-      position: "absolute", bottom: 10, left: 10, zIndex: 1, pointerEvents: "none",
-      background: "#0d1526dd", border: "1px solid #1e3a5f", borderRadius: 8,
-      padding: "8px 11px", fontSize: 9.5, color: "#cbd5e1",
+      position: "absolute", bottom: 12, left: 12, zIndex: 1, pointerEvents: "none",
+      background: "#10151ee6", border: "1px solid #1b3a45", borderRadius: 10,
+      padding: "9px 12px", fontSize: 9.5, color: "#c7d0db",
       display: "flex", gap: 18, lineHeight: 1.9,
+      boxShadow: "0 6px 24px rgba(0,0,0,.45)",
     }}>
       <div style={{ display: "flex", flexDirection: "column" }}>
         <LegendDot color={C.active} label="Active" />

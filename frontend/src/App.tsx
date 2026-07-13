@@ -1,24 +1,58 @@
-import { useState, Component, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useMemo, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { usePlayback } from "./hooks/usePlayback";
 import { useRunSeries } from "./hooks/useRunSeries";
-import NavRail, { type Drawer } from "./components/NavRail";
-import MapStage from "./components/MapStage";
-import RunsPanel from "./components/RunsPanel";
-import type { IslandTab } from "./components/StatsIsland";
-import { color, shadow } from "./theme/tokens";
+import LeftPanel, { type LeftTab } from "./components/LeftPanel";
+import MapPane from "./components/MapPane";
+import MapControlBar, { type MapControls } from "./components/MapControlBar";
+import type { MapHandle, RoutePath } from "./components/MapGL";
+import { color, type RouteFilter } from "./theme/tokens";
 
-// StatisticsPanel pulls in recharts (via StatsPanel) — lazy so the charts bundle
-// stays out of the initial payload; the map shell loads without it.
-const StatisticsPanel = lazy(() => import("./components/StatisticsPanel"));
+const API = "http://localhost:3000";
 
+/**
+ * App shell: a permanent left panel (tabs + pinned playback dock) beside a
+ * full-height, chrome-free deck.gl map. The map is shifted fully to the right;
+ * every control lives in the left panel.
+ */
 export default function App() {
   const pb = usePlayback();
   const series = useRunSeries(pb.ticks);
-  const [drawer, setDrawer] = useState<Drawer | null>("runs");
-  const [island, setIsland] = useState<{ expanded: boolean; tab: IslandTab }>({ expanded: false, tab: "telemetry" });
+  const [tab, setTab] = useState<LeftTab>("runs");
+  const mapRef = useRef<MapHandle>(null);
 
-  const selectDrawer = (d: Drawer) => setDrawer(prev => (prev === d ? null : d));
+  // Map layer state lives here so both the left-panel controls and the map read it.
+  const [routes, setRoutes] = useState<RoutePath[]>([]);
+  const [showRoutes, setShowRoutes] = useState(true);
+  const [showWeather, setShowWeather] = useState(true);
+  const [showLegend, setShowLegend] = useState(true);
+  const [routeFilter, setRouteFilter] = useState<RouteFilter>("all");
+
+  // Faint AIS route network for map context (fetched once).
+  useEffect(() => {
+    fetch(`${API}/sim/ais-paths`)
+      .then(r => r.json() as Promise<{ name: string; vessel_type: string; waypoints: { lat: number; lon: number }[] }[]>)
+      .then(data => setRoutes(data.map(d => ({
+        name: d.name, vessel_type: d.vessel_type,
+        path: d.waypoints.map(w => [w.lon, w.lat] as [number, number]),
+      }))))
+      .catch(() => {});
+  }, []);
+
+  const shownRoutes = useMemo(
+    () => routeFilter === "all" ? routes : routes.filter(r => r.vessel_type.toLowerCase() === routeFilter),
+    [routes, routeFilter],
+  );
+
+  const map: MapControls = {
+    showRoutes, onToggleRoutes: () => setShowRoutes(s => !s),
+    showWeather, onToggleWeather: () => setShowWeather(s => !s),
+    showLegend, onToggleLegend: () => setShowLegend(s => !s),
+    routeFilter, onRouteFilter: setRouteFilter,
+    onFit: () => mapRef.current?.fitDomain(),
+    onZoomIn: () => mapRef.current?.zoomBy(0.6),
+    onZoomOut: () => mapRef.current?.zoomBy(-0.6),
+  };
 
   return (
     <div style={{
@@ -26,28 +60,20 @@ export default function App() {
       background: color.bg, color: color.text,
       fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
     }}>
-      <NavRail active={drawer} onSelect={selectDrawer} onComms={() => setIsland({ expanded: true, tab: "comms" })} />
+      <LeftPanel pb={pb} series={series} tab={tab} onTab={setTab} />
 
-      <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
-        {/* The map is always the stage. */}
-        <MapStage pb={pb} series={series} island={island} onIsland={setIsland} />
-
-        {/* Left drawer overlays the map; the map stays full-bleed behind it. */}
-        {drawer && (
-          <div style={{
-            position: "absolute", top: 0, bottom: 46, left: 0, width: 340, zIndex: 4,
-            background: color.panel, borderRight: `1px solid ${color.border}`,
-            boxShadow: shadow, display: "flex", flexDirection: "column", overflow: "hidden",
-          }}>
-            {drawer === "runs"
-              ? <RunsPanel pb={pb} />
-              : (
-                <Suspense fallback={<div style={{ padding: 16, fontSize: 12, color: color.faint }}>Loading…</div>}>
-                  <StatisticsPanel pb={pb} />
-                </Suspense>
-              )}
-          </div>
-        )}
+      {/* The map fills the rest — data overlays + legend, with the camera/layer
+          controls floating in the top-right corner. */}
+      <div style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
+        <MapPane
+          ref={mapRef}
+          pb={pb}
+          routes={shownRoutes}
+          showRoutes={showRoutes}
+          showWeather={showWeather}
+          showLegend={showLegend}
+        />
+        <MapControlBar map={map} />
       </div>
     </div>
   );
@@ -77,13 +103,13 @@ export class AppErrorBoundary extends Component<
         <div style={{
           height: "100vh", display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center",
-          background: "#0a0f1e", color: "#f1f5f9",
+          background: color.bg, color: color.text,
           fontFamily: "monospace", padding: 32, gap: 16, overflowY: "auto",
         }}>
           <div style={{ fontSize: 28 }}>⚠</div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "#f87171" }}>Render error</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: color.bad }}>Render error</div>
           <pre style={{
-            background: "#0d1526", border: "1px solid #ef4444", borderRadius: 8,
+            background: color.panel, border: `1px solid ${color.bad}`, borderRadius: 8,
             padding: "12px 16px", fontSize: 12, color: "#fca5a5",
             maxWidth: 800, width: "100%", overflowX: "auto", whiteSpace: "pre-wrap",
           }}>
@@ -92,8 +118,8 @@ export class AppErrorBoundary extends Component<
           <button
             onClick={() => this.setState({ error: null, componentStack: null })}
             style={{
-              padding: "6px 18px", background: "#1e3a8a", color: "#93c5fd",
-              border: "1px solid #1d4ed8", borderRadius: 6, cursor: "pointer",
+              padding: "6px 18px", background: color.accentDeep, color: "#fff",
+              border: `1px solid ${color.accent}`, borderRadius: 6, cursor: "pointer",
               fontSize: 12, fontWeight: 600,
             }}
           >
