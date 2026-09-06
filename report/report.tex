@@ -11,6 +11,11 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
 
+% Wikipedia overview for advanced terms that lack a dedicated primary cite.
+\newcommand{\wikifn}[1]{%
+  \footnote{Overview: \url{https://en.wikipedia.org/wiki/#1}}%
+}
+
 \title{Human-Factor-Coupled Collision Avoidance and Search-and-Rescue\\
        in a Multi-Agent Maritime Safety Simulation:\\
        A Baltic--North Sea Case Study}
@@ -35,7 +40,7 @@ collision avoidance, human factors, search and rescue}
 
 % ------------------------------------------------------------------
 \begin{abstract}
-Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and heavy weather makes coordination harder by degrading both perception and bridge-to-bridge radio. We present a tick-based agent-based model of Baltic and North Sea traffic. Vessels follow depth- and lane-constrained routes built from open bathymetry and Automatic Identification System (AIS) density data. Encounters are resolved with a Closest Point of Approach (CPA) check and a COLREGs-style give-way rule. The main modelling choice is that every collision warning succeeds only with probability equal to the product of a local weather factor and a crew-fatigue factor. Collision damage uses DTU SIMCOL~\cite{lutzen2001}; route-network collision frequency is checked with IWRAP Mk~II~\cite{friishansen2008iwrap}; rescue follows IAMSAR practice~\cite{imosar2018} with MASSIM/Koopman random search~\cite{karatas2018,koopman1980} and Ashrafi seasonal degradation~\cite{ashrafi2024}. We compare a classical baseline, a weather-aware baseline, and a fatigue-aware Proposed System across four scenarios ($30$ seeds each; $360$ runs) with Mann--Whitney U tests, Holm--Bonferroni correction, and Cliff's~$\delta$. Pre-registered fatal-rate and survival thresholds (H1--H3) were not confirmed after correction. Preparedness $P_{\mathrm{prep}}$ rose with large confirmed effects in every scenario ($|\delta|\ge 0.90$). Mean Storm Corridor collisions fell by about $28\,\%$ versus Baseline~A ($\delta{=}0.32$, not significant after Holm).
+Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and heavy weather makes coordination harder by degrading both perception and bridge-to-bridge radio. We present a tick-based agent-based model (ABM) of Baltic and North Sea traffic. Vessels follow depth- and lane-constrained routes built from open bathymetry and Automatic Identification System (AIS) density data. Encounters are resolved with a Closest Point of Approach (CPA) check and an International Regulations for Preventing Collisions at Sea (COLREGs)-style give-way rule. The main modelling choice is that every collision warning succeeds only with probability equal to the product of a local weather factor and a crew-fatigue factor. Collision damage uses Technical University of Denmark (DTU) SIMCOL~\cite{lutzen2001}; route-network collision frequency is checked with the International Association of Marine Aids to Navigation and Lighthouse Authorities (IALA) Waterway Risk Assessment Program (IWRAP) Mk~II~\cite{friishansen2008iwrap}; rescue follows International Aeronautical and Maritime Search and Rescue (IAMSAR) practice~\cite{imosar2018} with the MASSIM maritime-search simulation and Koopman random search~\cite{karatas2018,koopman1980} and Ashrafi seasonal degradation~\cite{ashrafi2024}. We compare a classical baseline, a weather-aware baseline, and a fatigue-aware Proposed System across four scenarios ($30$ seeds each; $360$ runs) with Mann--Whitney U tests, Holm--Bonferroni correction, and Cliff's~$\delta$. Pre-registered fatal-rate and survival thresholds (H1--H3) were not confirmed after correction. Preparedness $P_{\mathrm{prep}}$ rose with large confirmed effects in every scenario ($|\delta|\ge 0.90$). Mean Storm Corridor collisions fell by about $28\,\%$ versus Baseline~A ($\delta{=}0.32$, not significant after Holm).
 \end{abstract}
 
 % ==================================================================
@@ -43,7 +48,7 @@ Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018
 \label{sec:intro}
 % ==================================================================
 
-Maritime transport moves most of world trade, but safety remains limited by human factors~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters, and hull and machinery claims remain large~\cite{iumi2023}. The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}. Weather and radio: sea clutter and storms reduce the chance that a marine VHF warning is heard and acted on, yet many models assume that once risk is detected the manoeuvre always happens. Crew fatigue: fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}, but prior work often keeps it in a side model without a direct link to whether a warning is executed. This paper couples those effects in one product: warning success depends on both local weather and crew fatigue (Fig.~\ref{fig:causal}). Sections~\ref{sec:model}--\ref{sec:sar} define the Baltic--North Sea ABM, fatigue-aware CPA avoidance, SIMCOL damage~\cite{lutzen2001}, and SAR. Section~\ref{sec:iwrap} places network frequency on an IWRAP scale~\cite{friishansen2008iwrap}; Sections~\ref{sec:experiment}--\ref{sec:results} report the factorial comparison.
+Maritime transport moves most of world trade, but safety remains limited by human factors~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters, and hull and machinery claims remain large~\cite{iumi2023}. The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime agent-based models (ABMs) treat only loosely~\cite{tam2010,silveira2013,zhang2015}. Weather and radio: sea clutter and storms reduce the chance that a marine very high frequency (VHF) warning is heard and acted on, yet many models assume that once risk is detected the manoeuvre always happens. Crew fatigue: fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}, but prior work often keeps it in a side model without a direct link to whether a warning is executed. This paper couples those effects in one product: warning success depends on both local weather and crew fatigue (Fig.~\ref{fig:causal}). Sections~\ref{sec:model}--\ref{sec:sar} define the Baltic--North Sea ABM, fatigue-aware Closest Point of Approach (CPA) avoidance, DTU SIMCOL damage~\cite{lutzen2001}, and search and rescue (SAR). Section~\ref{sec:iwrap} places network frequency on an IWRAP scale~\cite{friishansen2008iwrap}; Sections~\ref{sec:experiment}--\ref{sec:results} report the factorial comparison.
 
 \begin{figure*}[t]
 \centering
@@ -91,7 +96,7 @@ Maritime transport moves most of world trade, but safety remains limited by huma
 \label{sec:goal}
 % ==================================================================
 
-We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations (storm-zone radio loss is shared by all methods---environmental, not a method privilege). Baseline~A (Classical) uses COLREGs give-way with no weather-aware slowdown and unmanaged fatigue. Baseline~B (Shore Rest Alerts) adds weather-aware speed reduction and slower fatigue build-up. The Proposed System keeps Baseline~B's slowdowns and adds smart watch scheduling (lowest fatigue build-rate). Hypotheses: H1---Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}); H2---Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A; H3---under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
+We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations (storm-zone radio loss is shared by all methods---environmental, not a method privilege). Baseline~A (Classical) uses COLREGs give-way with no weather-aware slowdown and unmanaged fatigue. Baseline~B (Shore Rest Alerts) adds weather-aware speed reduction and slower fatigue build-up. The Proposed System keeps Baseline~B's slowdowns and adds smart watch scheduling (lowest fatigue build-rate). Hypotheses: H1---Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, key performance indicator (KPI)~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}); H2---Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A; H3---under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
 
 % ==================================================================
 \section{Simulation Model}
@@ -100,12 +105,12 @@ We test whether linking fatigue management to warning reliability reduces fatal 
 
 \subsection{Domain and Time}
 
-The domain is the Baltic and North Sea: latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E. An equirectangular map with a mid-latitude correction sets one field unit to one nautical mile at $\phi_0 = 58.25^\circ$:
+The domain is the Baltic and North Sea: latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E. An equirectangular projection map with a mid-latitude correction sets one field unit to one nautical mile at $\phi_0 = 58.25^\circ$:
 \begin{equation*}
   x = (\lambda - \lambda_{\min})\,k_{\text{lon}}, \qquad
   y = (\phi - \phi_{\min})\,k_{\text{lat}},
 \end{equation*}
-with $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$. East--west distortion at the box edges is about $6$--$10\,\%$ and is left uncorrected; distances inside the engine are Euclidean nautical miles. Coastline polygons from Natural Earth sit in an R-tree for land and grounding tests. Bathymetry is used only offline for route planning (Section~\ref{sec:routegen}). Time steps are $\Delta t = 15$\,min ($0.25$\,h); the default run length is $T = 2880$ ticks ($30$ days). A wall-clock variable starts at 06:00\,UTC and drives the circadian fatigue term (Section~\ref{sec:fatigue}). Each run uses one seeded \texttt{SmallRng}, so the same seed yields identical KPI logs.
+with $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$. East--west distortion at the box edges is about $6$--$10\,\%$ and is left uncorrected; distances inside the engine are Euclidean nautical miles. Coastline polygons from Natural Earth sit in an R-tree spatial index\wikifn{R-tree} for land and grounding tests. Bathymetry is used only offline for route planning (Section~\ref{sec:routegen}). Time steps are $\Delta t = 15$\,min ($0.25$\,h); the default run length is $T = 2880$ ticks ($30$ days). A wall-clock variable starts at 06:00\,Coordinated Universal Time (UTC) and drives the circadian fatigue term (Section~\ref{sec:fatigue}). Each run uses one seeded \texttt{SmallRng}, so the same seed yields identical KPI logs.
 
 \subsection{Vessels and Voyage Logic}
 
@@ -113,7 +118,7 @@ Agents are ships; after an incident, rescue assets appear (Section~\ref{sec:sar}
 \begin{equation*}
   v_i =
   \begin{cases}
-  15 + 8u & \text{passenger / ferry / ro-ro / ro-pax}\\
+  15 + 8u & \text{passenger / ferry / roll-on/roll-off (ro-ro, ro-pax)}\\
   10 + 4u & \text{tanker}\\
   10 + 6u & \text{cargo / container / bulk}\\
   10 + 10u & \text{otherwise.}
@@ -125,7 +130,7 @@ Waypoint pursuit: the active target is an avoidance waypoint if one is queued, o
 \subsection{Route Generation}
 \label{sec:routegen}
 
-Traffic geometry is produced offline so experiments stay reproducible. Depth comes from the EMODnet DTM~\cite{emodnetbathymetry}. Lane attractiveness comes from EMODnet vessel-density maps~\cite{emodnetvesseldensity,silveira2013}. Both are fetched once via the OGC Web Coverage Service (WCS) and stored as grids. Ports are a gazetteer of $42$ harbours snapped to navigable water. Each class $c$ has draft $T_c$ and under-keel clearance ($\text{UKC}_c$)~\cite{pianc2014}. A cell of depth $h$ is navigable iff $h \ge T_c + \text{UKC}_c + m_s$ with buffer $m_s = 2$\,m (Table~\ref{tab:draft}). Deep-draft very large crude carriers (VLCCs) are excluded (Danish Straits).
+Traffic geometry is produced offline so experiments stay reproducible. Depth comes from the European Marine Observation and Data Network (EMODnet) digital terrain model (DTM)~\cite{emodnetbathymetry}. Lane attractiveness comes from EMODnet vessel-density maps~\cite{emodnetvesseldensity,silveira2013}. Both are fetched once via the Open Geospatial Consortium (OGC) Web Coverage Service (WCS) and stored as grids. Ports are a gazetteer of $42$ harbours snapped to navigable water. Each class $c$ has draft $T_c$ and under-keel clearance ($\text{UKC}_c$)~\cite{pianc2014}. A cell of depth $h$ is navigable iff $h \ge T_c + \text{UKC}_c + m_s$ with buffer $m_s = 2$\,m (Table~\ref{tab:draft}). Deep-draft very large crude carriers (VLCCs) are excluded (Danish Straits).
 
 \begin{table}[h]
 \centering
@@ -142,7 +147,7 @@ Tanker    & 14.0 & 3.0 & 17 \\
 \end{tabular}
 \end{table}
 
-Between sampled port pairs, a weighted A\textsuperscript{*} planner~\cite{hart1968astar} runs on a $1$\,nm grid. Cell cost uses
+Between sampled port pairs, a weighted A\textsuperscript{*} pathfinding planner~\cite{hart1968astar} runs on a $1$\,nm grid. Cell cost uses
 \begin{equation*}
   \mu = 1 + w_h\,s_h + w_d\,s_d + w_\ell\,(1 - a_\ell),
 \end{equation*}
@@ -156,7 +161,7 @@ A $50\times50$ grid holds sea state $s$, visibility $v$, and wind $u$ in $[0,1]$
   W = \mathrm{clip}\left(\frac{w_s\,s + w_v\,(1-v) + w_u\,u}{w_s + w_v + w_u},\,0,\,1\right),
   \label{eq:W}
 \end{equation}
-with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, AR(1) background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}). Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, link reliability and non-A speeds are degraded (Sections~\ref{sec:avoidance} and~\ref{sec:speed}; Table~\ref{tab:scenarios}).
+with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, first-order autoregressive (AR(1)) background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}). Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, link reliability and non-A speeds are degraded (Sections~\ref{sec:avoidance} and~\ref{sec:speed}; Table~\ref{tab:scenarios}).
 
 % ==================================================================
 \section{Crew Fatigue and Collision Avoidance}
@@ -278,7 +283,7 @@ A \textbf{hard collision} is logged when two \textsc{Active} ships close within 
   V_n = \big|(\mathbf{v}_b - \mathbf{v}_a)\cdot\hat{\mathbf{n}}\big|,
   \label{eq:eabs}
 \end{equation}
-with added-mass factors $m_{\text{sway}} = 0.85$ and $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. Minorsky's correlation~\cite{minorsky1959} links energy to damaged volume. Relative penetration $t/B$ drives a survival factor shaped like SOLAS Chapter~II-1 probabilistic damage stability~\cite{solas2020}:
+with added-mass factors $m_{\text{sway}} = 0.85$ and $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. Minorsky's correlation~\cite{minorsky1959} links energy to damaged volume. Relative penetration $t/B$ drives a survival factor shaped like International Convention for the Safety of Life at Sea (SOLAS) Chapter~II-1 probabilistic damage stability~\cite{solas2020}:
 \begin{equation}
   S_i =
   \begin{cases}
@@ -342,7 +347,7 @@ Foundering starts the liferaft chain under International Aeronautical and Mariti
 
 \subsection{Drift and Detection (MASSIM)}
 
-Detection follows the Koopman random-search model used in the MASSIM maritime-search simulation~\cite{karatas2018,koopman1980}. With sweep width $w$, search speed $v_s$, and area $A$,
+Detection follows the Koopman random-search model used in the MASSIM maritime-search simulation~\cite{karatas2018,koopman1980}. With sweep width $w$, search speed $v_s$, and area $A$, the cumulative detection probability (CDP) is
 \begin{equation}
   \text{CDP} = 1 - \exp\Big(-\,\frac{n\,w\,v_s\,\tau}{A}\Big) = 1 - e^{-C}.
   \label{eq:cdp}
@@ -361,7 +366,7 @@ Months map to severity groups A--D (May--August mildest; Dec--Feb harshest). Rel
 \subsection{Man-Overboard Search}
 \label{sec:mob}
 
-Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-water, each with its own drift bearing (Fig.~\ref{fig:mob}), following Karatas et al.~\cite{karatas2018}. One searcher homes on the cluster centroid and applies Eq.~\ref{eq:cdp} independently per person. Anyone not recovered within $\tau_{\text{mob}} = 12$ ticks (${\approx}3$\,h) is lost. Liferaft endurance is $96$ ticks ($24$\,h).
+Overboard casualties (Eq.~\ref{eq:overboard}) form one man-overboard (MOB) incident of persons-in-water, each with its own drift bearing (Fig.~\ref{fig:mob}), following Karatas et al.~\cite{karatas2018}. One searcher homes on the cluster centroid and applies Eq.~\ref{eq:cdp} independently per person. Anyone not recovered within $\tau_{\text{mob}} = 12$ ticks (${\approx}3$\,h) is lost. Liferaft endurance is $96$ ticks ($24$\,h).
 
 \begin{figure}[t]
 \centering
@@ -422,7 +427,7 @@ Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-wa
 \label{sec:iwrap}
 % ==================================================================
 
-Internal KPIs compare methods. Network collision frequency is checked with IALA's IWRAP Mk~II~\cite{friishansen2008iwrap,lusic2015}:
+Internal KPIs compare methods. Network collision frequency is checked with the International Association of Marine Aids to Navigation and Lighthouse Authorities (IALA) Waterway Risk Assessment Program (IWRAP) Mk~II~\cite{friishansen2008iwrap,lusic2015}:
 \begin{equation*}
   N_c = N_a\,P_c.
 \end{equation*}
@@ -513,7 +518,7 @@ For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--
 \label{sec:implementation}
 % ==================================================================
 
-The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE). Each finished run writes a JSONL tick log (every ten ticks), a manifest, and a SQLite results row. A React workbench (deck.gl / MapLibre) replays completed runs.
+The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE). Each finished run writes a JSON Lines (JSONL) tick log (every ten ticks), a manifest, and a SQLite results row. A React workbench (deck.gl / MapLibre) replays completed runs.
 
 \subsection{Tick Ordering}
 \label{sec:loop}
@@ -629,7 +634,7 @@ Table~\ref{tab:constants} lists principal defaults (overridable in configuration
         $T$ & 2880 & ticks per run ($30$\,d) \\
         weather grid & $50\times50$ & hazard field \\
         $(w_s,w_v,w_u)$ & $(1.0,0.5,0.8)$ & hazard fusion weights \\
-        warn / CPA / TTA gate & 20 / 5\,nm / 12 tk & avoidance gate \\
+        warn / CPA / time-to-arrival (TTA) gate & 20 / 5\,nm / 12 tk & avoidance gate \\
         $L_f,L_o$ & 3 / 5\,nm & give-way waypoint offsets \\
         cooldown & 3 tk & re-manoeuvre lockout \\
         $r_{\text{coll}}$ & 0.05\,nm & hit at $2r=0.10$\,nm \\
