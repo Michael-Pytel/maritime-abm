@@ -35,7 +35,7 @@ collision avoidance, human factors, search and rescue}
 
 % ------------------------------------------------------------------
 \begin{abstract}
-Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and heavy weather makes coordination harder by degrading both perception and bridge-to-bridge radio. We present a tick-based agent-based model of Baltic and North Sea traffic. Vessels follow depth- and lane-constrained routes built from open bathymetry and Automatic Identification System (AIS) density data. Encounters are resolved with a Closest Point of Approach (CPA) check and a COLREGs-style give-way rule (International Regulations for Preventing Collisions at Sea). The main modelling choice is that every collision warning succeeds only with probability equal to the product of a local weather factor and a crew-fatigue factor. Collision damage uses DTU SIMCOL~\cite{lutzen2001}; route-network collision frequency is checked with IWRAP Mk~II~\cite{friishansen2008iwrap}; rescue follows IAMSAR practice~\cite{imosar2018} with MASSIM/Koopman random search~\cite{karatas2018,koopman1980} and Ashrafi seasonal degradation~\cite{ashrafi2024}. We compare a classical baseline, a weather-aware baseline, and a fatigue-aware Proposed System across four scenarios ($30$ seeds each; $360$ runs) with Mann--Whitney U tests, Holm--Bonferroni correction, and Cliff's~$\delta$. Pre-registered fatal-rate and survival thresholds (H1--H3) were not confirmed after correction. Preparedness $P_{\mathrm{prep}}$ rose with large confirmed effects in every scenario ($|\delta|\ge 0.90$). Mean Storm Corridor collisions fell by about $28\,\%$ versus Baseline~A ($\delta{=}0.32$, not significant after Holm).
+Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and heavy weather makes coordination harder by degrading both perception and bridge-to-bridge radio. We present a tick-based agent-based model of Baltic and North Sea traffic. Vessels follow depth- and lane-constrained routes built from open bathymetry and Automatic Identification System (AIS) density data. Encounters are resolved with a Closest Point of Approach (CPA) check and a COLREGs-style give-way rule. The main modelling choice is that every collision warning succeeds only with probability equal to the product of a local weather factor and a crew-fatigue factor. Collision damage uses DTU SIMCOL~\cite{lutzen2001}; route-network collision frequency is checked with IWRAP Mk~II~\cite{friishansen2008iwrap}; rescue follows IAMSAR practice~\cite{imosar2018} with MASSIM/Koopman random search~\cite{karatas2018,koopman1980} and Ashrafi seasonal degradation~\cite{ashrafi2024}. We compare a classical baseline, a weather-aware baseline, and a fatigue-aware Proposed System across four scenarios ($30$ seeds each; $360$ runs) with Mann--Whitney U tests, Holm--Bonferroni correction, and Cliff's~$\delta$. Pre-registered fatal-rate and survival thresholds (H1--H3) were not confirmed after correction. Preparedness $P_{\mathrm{prep}}$ rose with large confirmed effects in every scenario ($|\delta|\ge 0.90$). Mean Storm Corridor collisions fell by about $28\,\%$ versus Baseline~A ($\delta{=}0.32$, not significant after Holm).
 \end{abstract}
 
 % ==================================================================
@@ -43,7 +43,7 @@ Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018
 \label{sec:intro}
 % ==================================================================
 
-Maritime transport moves most of world trade, but safety remains limited by human factors. The International Maritime Organization (IMO) attributes $70$--$96\,\%$ of incidents to human causes~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters. Hull and machinery claims remain large~\cite{iumi2023}.
+Maritime transport moves most of world trade, but safety remains limited by human factors~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters. Hull and machinery claims remain large~\cite{iumi2023}.
 
 The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}:
 
@@ -52,7 +52,7 @@ The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{c
     \item \textbf{Crew fatigue.} Fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}. Prior work often keeps fatigue in a side model, without a direct link to whether a warning is executed.
 \end{itemize}
 
-This paper couples those effects in one product: warning success depends on both local weather and crew fatigue. The model runs on real Baltic--North Sea geography (Section~\ref{sec:model}). Routes are synthesised from bathymetry and Automatic Identification System (AIS) traffic density (Section~\ref{sec:routegen}). Avoidance uses Closest Point of Approach / Time to CPA (CPA/TCPA) and a simple give-way rule (Section~\ref{sec:avoidance}). Damage uses the DTU ship-collision model SIMCOL~\cite{lutzen2001} (Section~\ref{sec:consequence}); frequency is checked with IALA IWRAP~\cite{friishansen2008iwrap} (Section~\ref{sec:iwrap}); survivors enter a search-and-rescue (SAR) chain (Section~\ref{sec:sar}). The engine is Rust on krABMaga~\cite{krabmaga2023}. Figure~\ref{fig:causal} summarises the causal chain.
+This paper couples those effects in one product: warning success depends on both local weather and crew fatigue (Fig.~\ref{fig:causal}). Sections~\ref{sec:model}--\ref{sec:sar} define the Baltic--North Sea ABM, fatigue-aware CPA avoidance, SIMCOL damage~\cite{lutzen2001}, and SAR. Section~\ref{sec:iwrap} places network frequency on an IWRAP scale~\cite{friishansen2008iwrap}; Sections~\ref{sec:experiment}--\ref{sec:results} report the factorial comparison.
 
 \begin{figure*}[t]
 \centering
@@ -91,7 +91,7 @@ This paper couples those effects in one product: warning success depends on both
   \draw[arr] (sim) -- node[above, font=\footnotesize]{founder} (sar);
 \end{tikzpicture}%
 }
-\caption{Causal pipeline. Weather $W$ and fatigue $F$ set warning success $P_{\text{comms}}$ (Eq.~\ref{eq:pcomms}). A delivered warning yields a give-way manoeuvre; a missed warning leaves the encounter to geometry. Hard collisions are scored with SIMCOL; a foundering ship enters SAR.}
+\caption{Causal pipeline. Weather $W$ and fatigue $F$ set $P_{\text{comms}}$. A delivered warning yields a give-way manoeuvre; a missed warning leaves the encounter to geometry. Hard collisions feed SIMCOL; foundering enters SAR.}
 \label{fig:causal}
 \end{figure*}
 
@@ -103,12 +103,12 @@ This paper couples those effects in one product: warning success depends on both
 We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations:
 
 \begin{description}
-    \item[Baseline~A (Classical)] COLREGs give-way, no weather-aware slowdown, unmanaged fatigue. Storm radio loss still applies inside the storm zone --- it is environmental, not a privilege of other methods.
+    \item[Baseline~A (Classical)] COLREGs give-way, no weather-aware slowdown, unmanaged fatigue.
     \item[Baseline~B (Shore Rest Alerts)] Weather-aware speed reduction and slower fatigue build-up; no further mitigation.
-    \item[Proposed System] Smart watch scheduling (lowest fatigue build-rate) on top of Baseline~B. Six KPIs are defined in Table~\ref{tab:kpis}.
+    \item[Proposed System] Smart watch scheduling (lowest fatigue build-rate) on top of Baseline~B.
 \end{description}
 
-\noindent We use them for the following hypotheses:
+\noindent Storm-zone radio loss is shared by all methods (environmental, not a method privilege). We test:
 
 \begin{description}
     \item[H1.] Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}).
@@ -121,7 +121,7 @@ We test whether linking fatigue management to warning reliability reduces fatal 
 \label{sec:model}
 % ==================================================================
 
-This section defines the world, agents, routes, and weather field used by all methods.
+This section defines the world, agents, routes, and weather field.
 
 \subsection{Domain and Time}
 
@@ -138,7 +138,7 @@ Time steps are $\Delta t = 15$\,min ($0.25$\,h). The default run length is $T = 
 
 Agents are ships; after an incident, rescue assets appear (Section~\ref{sec:sar}). Ship $i$ has position $\mathbf{p}_i$, waypoint route $R_i$, travel direction $d_i \in \{+1,-1\}$, heading $\psi_i$, cruise speed $v_i$, state $\sigma_i \in \{\textsc{Active}, \textsc{Docked}\}$, crew $n_i = 10$, and fatigue $F_i \in [0,1]$.
 
-Routes are synthesised once (Section~\ref{sec:routegen}) and stored as \texttt{data/ais\_paths.json}. Ports are polygons in \texttt{data/ports.json}. Entering a port docks the ship.
+Routes come from the offline network of Section~\ref{sec:routegen} (\texttt{data/ais\_paths.json}); ports are polygons in \texttt{data/ports.json}. Entering a port docks the ship.
  Cruise speed is drawn at spawn ($u \sim \mathcal{U}(0,1)$):
 \begin{equation*}
   v_i =
@@ -194,15 +194,13 @@ A $50\times50$ grid holds sea state $s$, visibility $v$, and wind $u$ in $[0,1]$
 \end{equation}
 with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, AR(1) background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}).
 
-Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, communication and (for non-A methods) speed are degraded.
+Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, link reliability and non-A speeds are degraded (Sections~\ref{sec:avoidance} and~\ref{sec:speed}; Table~\ref{tab:scenarios}).
 
 % ==================================================================
 \section{Crew Fatigue and Collision Avoidance}
 \label{sec:fatigue}
 \label{sec:avoidance}
 % ==================================================================
-
-Fatigue and avoidance form the mechanism behind H1--H3: warnings fail when weather is bad and crews are tired.
 
 \subsection{Fatigue Dynamics}
 
@@ -256,7 +254,7 @@ The lower-id ship gives way (turn to starboard); the other stands on. This is a 
   \label{eq:pcomms}
 \end{equation}
 \vspace{0.6em}
-\noindent where $q(\mathbf{p})$ is nominal link reliability, reduced to the storm-comms rate ($0.08$ inside Storm Corridor) when $\mathbf{p}$ is in the storm zone. A uniform draw below $P_{\text{comms}}$ executes the manoeuvre; otherwise geometry alone decides the encounter. Equation~\ref{eq:pcomms} is the central coupling of the model.
+\noindent where $q(\mathbf{p})$ is nominal link reliability, reduced to the storm-comms rate when $\mathbf{p}$ is in the storm zone ($0.08$ in Storm Corridor). A uniform draw below $P_{\text{comms}}$ executes the manoeuvre; otherwise geometry alone decides the encounter.
 
 \begin{figure}[t]
 \centering
@@ -293,7 +291,7 @@ The lower-id ship gives way (turn to starboard); the other stands on. This is a 
   \node[lab, red!75!black, right=4pt] at (Cpa) {$d_{\text{CPA}}$};
 \end{tikzpicture}%
 }
-\caption{Give-way geometry. Ship $a$ steers to a temporary waypoint $\mathbf{w}_{\text{avoid}}$ placed $L_f$ ahead and $L_o$ to starboard (Eq.~\ref{eq:avoidwp}). The manoeuvre runs only if the warning is delivered (Eq.~\ref{eq:pcomms}).}
+\caption{Give-way geometry. Ship $a$ steers to a temporary waypoint $\mathbf{w}_{\text{avoid}}$ placed $L_f$ ahead and $L_o$ to starboard (Eq.~\ref{eq:avoidwp}).}
 \label{fig:cpa}
 \end{figure}
 
@@ -341,7 +339,7 @@ with $r_0 = 0.10$, $r_1 = 0.30$. This is an accepted surrogate: the engine does 
   \mathbb{E}[\text{overboard}] = n_b\,\big(1 - S_i\big),
   \label{eq:overboard}
 \end{equation}
-drawn as independent Bernoulli trials. If $S_i < S^{\dagger} = 0.50$, the struck ship founders and the whole crew enters the liferaft (\textsc{Evac}). If it stays afloat, only the overboard draw enters the man-overboard chain (Section~\ref{sec:mob}).
+drawn as independent Bernoulli trials. If $S_i < S^{\dagger} = 0.50$, the struck ship founders and the whole crew enters the liferaft (\textsc{Evac}, Section~\ref{sec:sar}). If it stays afloat, only the overboard draw enters the man-overboard chain (Section~\ref{sec:mob}).
 
 Encounter type is diagnostic, from the folded heading angle $\theta$:
 \begin{equation*}
@@ -359,7 +357,7 @@ Near-parallel hits release little energy in Eq.~\ref{eq:eabs}; head-on and cross
 \label{sec:sar}
 % ==================================================================
 
-Foundering ($S_i < S^{\dagger}$) starts the liferaft chain, following International Aeronautical and Maritime Search and Rescue (IAMSAR) Manual practice~\cite{imosar2018}. A rescue asset leaves the nearest port after a mobilisation delay of $2$ ticks by default: helicopter ($80$\,kn) beyond $40$\,nm offshore, otherwise patrol ($25$\,kn). A second chain handles persons overboard from afloat ships (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the vessel state machine. Grounding only reverts position; it does not force evacuation.
+Foundering starts the liferaft chain under International Aeronautical and Maritime Search and Rescue (IAMSAR) Manual practice~\cite{imosar2018}. A rescue asset leaves the nearest port after a mobilisation delay of $2$ ticks by default: helicopter ($80$\,kn) beyond $40$\,nm offshore, otherwise patrol ($25$\,kn). Persons overboard from afloat ships use a separate chain (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the vessel state machine. Grounding only reverts position; it does not force evacuation.
 
 \begin{figure}[t]
 \centering
@@ -386,7 +384,7 @@ Foundering ($S_i < S^{\dagger}$) starts the liferaft chain, following Internatio
     node[lab, gray!70!black, right]{respawn};
 \end{tikzpicture}%
 }
-\caption{Vessel state machine. Foundering collision $\to$ \textsc{Evac}; SAR yields \textsc{Rescued} (Eq.~\ref{eq:cdp}) or \textsc{Lost}. Terminal ships respawn to keep fleet size. KPI fatalities count only unrecovered persons-in-water (Section~\ref{sec:mob}).}
+\caption{Vessel state machine. Foundering collision $\to$ \textsc{Evac}; SAR yields \textsc{Rescued} (Eq.~\ref{eq:cdp}) or \textsc{Lost}. Terminal ships respawn to keep fleet size.}
 \label{fig:fsm}
 \end{figure}
 
@@ -411,7 +409,7 @@ Months map to severity groups A--D (May--August mildest; Dec--Feb harshest). Rel
 \subsection{Man-Overboard Search}
 \label{sec:mob}
 
-Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-water, each with its own drift bearing (Fig.~\ref{fig:mob}), following Karatas et al.~\cite{karatas2018}. One searcher homes on the cluster centroid and applies Eq.~\ref{eq:cdp} independently per person. Anyone not recovered within $\tau_{\text{mob}} = 12$ ticks (${\approx}3$\,h) is lost. \textbf{This is the only path that increments the fatal KPI.} Liferaft \textsc{Lost} is logged but does not add to \texttt{fatal\_per\_1k\_hrs}. Liferaft endurance is $96$ ticks ($24$\,h).
+Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-water, each with its own drift bearing (Fig.~\ref{fig:mob}), following Karatas et al.~\cite{karatas2018}. One searcher homes on the cluster centroid and applies Eq.~\ref{eq:cdp} independently per person. Anyone not recovered within $\tau_{\text{mob}} = 12$ ticks (${\approx}3$\,h) is lost. Liferaft endurance is $96$ ticks ($24$\,h).
 
 \begin{figure}[t]
 \centering
@@ -463,7 +461,7 @@ Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-wa
   \node[anchor=west] at (5.07,0) {lost ($\tau>\tau_{\text{mob}}$)};
 \end{tikzpicture}}
 \end{minipage}
-\caption{Man-overboard search. Casualties (Eq.~\ref{eq:overboard}) drift separately; one searcher applies Eq.~\ref{eq:cdp} per person. Unrecovered people within $\tau_{\text{mob}}$ are the fatal KPI events.}
+\caption{Man-overboard search. Casualties (Eq.~\ref{eq:overboard}) drift separately; one searcher applies Eq.~\ref{eq:cdp} per person.}
 \label{fig:mob}
 \end{figure}
 
@@ -472,7 +470,7 @@ Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-wa
 \label{sec:iwrap}
 % ==================================================================
 
-Internal KPIs compare methods. To place traffic intensity on a known scale, the committed route network is analysed with IALA's IWRAP Mk~II waterway risk model~\cite{friishansen2008iwrap,lusic2015}:
+Internal KPIs compare methods. Network collision frequency is checked with IALA's IWRAP Mk~II~\cite{friishansen2008iwrap,lusic2015}:
 \begin{equation*}
   N_c = N_a\,P_c.
 \end{equation*}
@@ -489,14 +487,7 @@ Each batch row stamps $N_c$ from the static synthesised routes, the scenario fle
 
 \subsection{Methods and Scenarios}
 
-The three methods of Section~\ref{sec:goal} differ as follows:
-
-\begin{itemize}
-    \item \textbf{Baseline~A:} no weather-aware slowdown ($\text{storm speed factor}=1$); unmanaged fatigue ($m=1.00$).
-    \item \textbf{Baseline~B:} hazard and storm slowdowns; $m=0.82$.
-    \item \textbf{Proposed:} same slowdowns as B; $m=0.65$.
-\end{itemize}
-SIMCOL parameters are identical across methods. Storm-zone radio loss applies to all methods. Table~\ref{tab:scenarios} lists the four scenarios. Each condition uses $30$ seeds and $2880$ ticks ($4 \times 3 \times 30 = 360$ runs).
+The three methods of Section~\ref{sec:goal} differ only by fatigue build-rate $m$ (Eq.~\ref{eq:m}), weather/storm speed awareness (Section~\ref{sec:speed}), and preparedness weight $\alpha_M$ below. SIMCOL parameters are shared. Table~\ref{tab:scenarios} lists the four scenarios. Each condition uses $30$ seeds and $2880$ ticks ($360$ runs).
 
 \begin{table*}[t]
     \caption{Scenario summary ($30$ seeds, $2880$ ticks/run).}
@@ -525,7 +516,7 @@ SIMCOL parameters are identical across methods. Storm-zone radio loss applies to
 
 \subsection{Key Performance Indicators}
 
-Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours add $0.25$\,h per \textsc{Active} ship per tick. A \emph{fatality} in the KPIs is an unrecovered person-in-water (Section~\ref{sec:mob}).
+Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours add $0.25$\,h per \textsc{Active} ship per tick. A KPI \emph{fatality} is an unrecovered person-in-water within $\tau_{\text{mob}}$ (Section~\ref{sec:mob}); liferaft \textsc{Lost} is logged separately and does not enter KPI~1.
 
 \begin{table*}[t]
     \caption{KPI definitions and hypothesis links.}
@@ -565,6 +556,7 @@ Crew preparedness uses method awareness $\alpha_M \in \{2.0\,(\text{A}),\,1.3\,(
 Diagnostic counters (collision-type mix, MOB tallies) are logged but not entered into the Holm battery.
 
 \subsection{Statistical Analysis}
+\label{sec:stats}
 
 For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--Whitney U test~\cite{mannwhitney1947} with Cliff's $\delta$~\cite{cliff1993}. Multiplicity uses Holm's sequentially rejective Bonferroni procedure~\cite{holm1979} over the full battery. A result is \emph{significant} if $p_{\text{corr}} < 0.05$ and \emph{confirmed} if also $|\delta| \ge 0.2$. Pairs are (A vs Proposed), (B vs Proposed), and (A vs B). Seeds are matched across conditions.
 
@@ -578,7 +570,7 @@ The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches fa
 \subsection{Tick Ordering}
 \label{sec:loop}
 
-Within a tick, vessel agents step first (krABMaga order $200$), then a post-tick agent (order $1000$) runs the shared physics pipeline shown in Fig.~\ref{fig:tick}: weather advance; grounding revert; hazard and storm speed damping; fatigue; CPA avoidance and comms draws; following; rising-edge collisions and SIMCOL; SAR/MOB; fleet top-up; KPI accumulate; optional JSONL frame. Navigation therefore uses weather and avoidance state from the previous tick's post-tick pass.
+Within a tick, vessel agents step first (krABMaga order $200$), then a post-tick agent (order $1000$) runs the shared physics pipeline in Fig.~\ref{fig:tick}. Navigation therefore uses weather and avoidance state from the previous tick's post-tick pass.
 
 \begin{figure}[t]
 \centering
@@ -594,7 +586,7 @@ Within a tick, vessel agents step first (krABMaga order $200$), then a post-tick
   \draw[arr] (a) -- (p);
   \draw[arr] (p.north) to[out=90, in=90] node[above, font=\scriptsize]{next tick} (a.north);
 \end{tikzpicture}
-\caption{Macro-tick order. Agents navigate, then the post-tick pipeline updates weather, human factors, encounters, and outcomes.}
+\caption{Macro-tick order. Agents navigate, then the post-tick pipeline advances weather, fatigue, CPA/comms, collisions, SAR/MOB, fleet top-up, and KPIs.}
 \label{fig:tick}
 \end{figure}
 
@@ -612,7 +604,7 @@ Baseline~A ignores this factor. Inside the storm zone an extra factor applies: $
 \label{sec:results}
 % ==================================================================
 
-Confirmation requires $p_{\mathrm{corr}}<0.05$ and $|\delta|\ge 0.2$. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts.
+Confirmation criteria are those of Section~\ref{sec:stats}. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts.
 
 \subsection{Calibration and Storm Contrast}
 \label{sec:results-calib}
@@ -657,18 +649,16 @@ H3 & Fatals under Storm, Proposed vs B & Not confirmed & $\delta\approx 0.00$ \\
 \subsection{Mechanism and Collisions}
 \label{sec:results-mech}
 
-Mean $P_{\mathrm{prep}}$ is higher for Proposed than for either baseline in every scenario, with confirmed effects ($|\delta|\in[0.90,1.00]$). Mean Storm Corridor collisions fall from $1.48$ to $1.07$ versus Baseline~A (${\approx}28\,\%$, $\delta{=}0.32$), but that contrast is not significant after family-wise Holm correction.
+Mean $P_{\mathrm{prep}}$ is higher for Proposed than for either baseline in every scenario, with confirmed effects ($|\delta|\in[0.90,1.00]$). Mean Storm Corridor collisions fall from $1.48$ to $1.07$ versus Baseline~A (${\approx}28\,\%$, $\delta{=}0.32$), but that contrast is not significant after Holm.
 
 % ==================================================================
 \section{Discussion}
 \label{sec:discussion}
 % ==================================================================
 
-The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and both crews allow it. Methods differ by fatigue build-rate $m$ (Eq.~\ref{eq:m}), weather/storm speed awareness, and preparedness weights $\alpha_M$. The batch confirms the preparedness lever and a directional storm-collision benefit, but not the pre-registered fatal/survival thresholds. Fatal events are rare outside Deep Water Rescue, so H1--H3 are under-powered even when point estimates move in the expected direction.
+The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and both crews allow it. The batch confirms the preparedness lever and a directional storm-collision benefit, but not the pre-registered fatal/survival thresholds. Fatal events are rare outside Deep Water Rescue, so H1--H3 are under-powered even when point estimates move in the expected direction.
 
-Accredited layers add external structure: SIMCOL for damage~\cite{lutzen2001}, IWRAP for network frequency~\cite{friishansen2008iwrap}, and MASSIM/Ashrafi for rescue~\cite{karatas2018,ashrafi2024}. The survival factor $S_i$ (Eq.~\ref{eq:sfactor}) is a SOLAS-shaped surrogate, not a full residual-stability calculation.
-
-Main limitations: synthesised routes trade some traffic realism for control; the lower-id give-way rule simplifies COLREGs; force-field avoidance is off by default; KPI fatalities count only MOB timeouts; IWRAP stamps use static routes rather than per-run tracks. Calibration under Baseline~A Calm Passage ($0.60$ collisions per $1\,000$ ship-hours) sits near published AIS near-miss bands~\cite{silveira2013,zhang2015}. Longer runs or collision-rate primary endpoints would raise power on fatal contrasts.
+The survival factor $S_i$ (Eq.~\ref{eq:sfactor}) is a SOLAS-shaped surrogate, not a full residual-stability calculation. Main limitations: synthesised routes trade some traffic realism for control; the lower-id give-way rule simplifies COLREGs; force-field avoidance is off by default; IWRAP stamps use static routes rather than per-run tracks. Calm Passage calibration under Baseline~A sits near published AIS near-miss bands~\cite{silveira2013,zhang2015}. Longer runs or collision-rate primary endpoints would raise power on fatal contrasts.
 
 \bibliographystyle{IEEEtran}
 \bibliography{mybib}
@@ -687,7 +677,7 @@ Table~\ref{tab:constants} lists principal defaults (overridable in configuration
     \label{tab:constants}
     \centering
     \small
-    \begin{tabular}{@{}llp{0.7\columnwidth}@{}}
+    \begin{tabular}{@{}llp{0.8\columnwidth}@{}}
         \toprule
         Constant & Default & Role \\
         \midrule
