@@ -795,6 +795,57 @@ Coupling weather and fatigue into $P_{\text{comms}}$ (Eq.~\ref{eq:pcomms}) there
 
 This appendix mirrors the walkthrough style of an earlier coastal Mesa prototype, but every step and type name is taken from the current Rust engine in \texttt{crates/simulation} (\texttt{SimState::run\_tick}~/~\texttt{post\_tick}, \texttt{VesselAgent}, \texttt{WeatherField}, \texttt{sar}). Macro tick $\Delta t=5$\,min.
 
+\subsection{SAR Asset State Machine}
+\label{apx:sar-fsm}
+
+Fig.~\ref{fig:sar-fsm} complements the vessel FSM of Fig.~\ref{fig:fsm}: once a founder enters \textsc{Evac}, a \texttt{RescueAgent} is dispatched from the nearest shore base (Helicopter beyond the open-water threshold, else Patrol). Speeds and boarding rates use Ashrafi month factors; on-scene detection uses Koopman CDP (Eq.~\ref{eq:cdp}). \texttt{MobSearchAgent} reuses the same \texttt{RescuePhase} enum but never enters Embarking---persons are recovered one-by-one while Searching.
+
+\begin{figure}[t]
+\centering
+\resizebox{0.88\columnwidth}{!}{%
+\begin{tikzpicture}[
+  >=Stealth, font=\footnotesize,
+  st/.style={draw, thick, rounded corners=3pt, minimum width=2.3cm,
+             minimum height=0.62cm, align=center, inner sep=3pt},
+  elab/.style={font=\scriptsize, inner sep=1.2pt, fill=white},
+  term/.style={draw, thick, circle, minimum size=0.26cm, inner sep=0pt},
+]
+  \node[term, fill=black] (start) at (0,0) {};
+  \node[st, fill=orange!18] (mob) at (0,-1.15) {Mobilising};
+  \node[st, fill=blue!12] (tr) at (0,-2.3) {Transiting};
+  \node[st, fill=yellow!22] (se) at (0,-3.45) {Searching};
+  \node[st, fill=green!14] (em) at (0,-4.6) {Embarking};
+  \node[st, fill=green!22] (ok) at (0,-5.75) {\textsc{Rescued}};
+  \node[term, fill=white] (end) at (0,-7.05) {};
+
+  \node[st, fill=red!15] (lost) at (5.2,-3.45) {\textsc{Lost}};
+
+  \draw[->] (start) -- (mob) node[elab, midway, right=4pt]{dispatch};
+  \draw[->] (mob) -- (tr) node[elab, midway, right=4pt]{delay $=0$};
+  \draw[->] (tr) -- (se) node[elab, midway, right=4pt]{on scene};
+  \draw[->] (se) -- (em) node[elab, midway, right=4pt]{CDP hit};
+  \draw[->] (em) -- (ok) node[elab, midway, right=4pt]{board done};
+  \draw[->] (ok) -- (end) node[elab, midway, left=4pt]{retire agent};
+
+  \draw[->] ([yshift=1mm]se.west) .. controls +(-0.95,0.5) and +(-0.95,-0.5) ..
+    node[elab, left=1pt]{miss} ([yshift=-1mm]se.west);
+
+  \draw[->] (se.east) -- (lost.west)
+    node[elab, midway, fill=white, inner sep=2pt]{liferaft $\tau$ elapsed};
+  \draw[->] (lost.south) -- node[elab, right=3pt]{timeout}
+    (lost.south |- end.east) -- (end.east);
+\end{tikzpicture}%
+}
+
+\vspace{0.4em}
+{\scriptsize
+\textbf{MOB:} Mobilising$\to$Transiting$\to$Searching only (no Embarking);
+each PIW draws CDP independently; agent retires when empty.}
+
+\caption{UML state machine for \texttt{RescuePhase} on a liferaft \texttt{RescueAgent}. Vessel outcomes \textsc{Rescued}/\textsc{Lost} match Fig.~\ref{fig:fsm}; the asset is removed from \texttt{rescue\_agents} when the case closes.}
+\label{fig:sar-fsm}
+\end{figure}
+
 \subsection{Macro-Tick Execution Sequence}
 \label{apx:tick}
 
@@ -919,57 +970,6 @@ Fig.~\ref{fig:seq} shows the rising-edge collision path that feeds liferaft evac
 \end{tikzpicture}
 \caption{UML sequence aligned with \texttt{post\_tick}: CPA (or force-field) first, then hard contact, SIMCOL, \texttt{run\_sar} / \texttt{run\_mob\_sar}. Survival windows are liferaft ticks for \textsc{Evac} and $\tau_{\text{mob}}$ for persons in the water. Asset phases appear in Fig.~\ref{fig:sar-fsm}.}
 \label{fig:seq}
-\end{figure*}
-
-\subsection{SAR Asset State Machine}
-\label{apx:sar-fsm}
-
-Fig.~\ref{fig:sar-fsm} complements the vessel FSM of Fig.~\ref{fig:fsm}: once a founder enters \textsc{Evac}, a \texttt{RescueAgent} is dispatched from the nearest shore base (Helicopter beyond the open-water threshold, else Patrol). Speeds and boarding rates use Ashrafi month factors; on-scene detection uses Koopman CDP (Eq.~\ref{eq:cdp}). \texttt{MobSearchAgent} reuses the same \texttt{RescuePhase} enum but never enters Embarking---persons are recovered one-by-one while Searching.
-
-\begin{figure*}[t]
-\centering
-\begin{tikzpicture}[
-  >=Stealth, font=\footnotesize,
-  st/.style={draw, thick, rounded corners=3pt, minimum width=2.4cm,
-             minimum height=0.62cm, align=center, inner sep=3pt},
-  elab/.style={font=\scriptsize, inner sep=1pt},
-  term/.style={draw, thick, circle, minimum size=0.28cm, inner sep=0pt},
-]
-  % Vertical happy path (labels sit beside edges --- never on them)
-  \node[term, fill=black] (start) at (0,0) {};
-  \node[st, fill=orange!18] (mob) at (0,-1.15) {Mobilising};
-  \node[st, fill=blue!12] (tr) at (0,-2.3) {Transiting};
-  \node[st, fill=yellow!22] (se) at (0,-3.45) {Searching};
-  \node[st, fill=green!14] (em) at (0,-4.6) {Embarking};
-  \node[st, fill=green!22] (ok) at (0,-5.75) {\textsc{Rescued}};
-  \node[term, fill=white] (end) at (0,-6.9) {};
-
-  \node[st, fill=red!15] (lost) at (4.2,-3.45) {\textsc{Lost}};
-
-  \draw[->] (start) -- (mob) node[elab, midway, right=5pt]{dispatch};
-  \draw[->] (mob) -- (tr) node[elab, midway, right=5pt]{delay $=0$};
-  \draw[->] (tr) -- (se) node[elab, midway, right=5pt]{on scene};
-  \draw[->] (se) -- (em) node[elab, midway, right=5pt]{CDP hit};
-  \draw[->] (em) -- (ok) node[elab, midway, right=5pt]{board done};
-  \draw[->] (ok) -- (end) node[elab, midway, right=5pt]{retire agent};
-
-  % miss loop on the left of Searching
-  \draw[->] ([yshift=1mm]se.west) .. controls +(-1.1,0.55) and +(-1.1,-0.55) ..
-    node[elab, left=2pt]{miss} ([yshift=-1mm]se.west);
-
-  % timeout branch to the right of Searching, then down to the shared sink
-  \draw[->] (se.east) -- (lost.west)
-    node[elab, midway, above=4pt]{liferaft $\tau$ elapsed};
-  \draw[->] (lost.south) -- ++(0,-1.35) coordinate (to) -| (end);
-  \node[elab, right=4pt] at ($(lost.south)!0.55!(to)$) {timeout};
-
-  \node[align=left, font=\scriptsize, text=gray!40!black, anchor=north west]
-    at (2.8,-6.35)
-    {\textbf{MOB:} Mobilising$\to$Transiting$\to$Searching only (no Embarking);\\
-     each PIW draws CDP independently; agent retires when empty.};
-\end{tikzpicture}
-\caption{UML state machine for \texttt{RescuePhase} on a liferaft \texttt{RescueAgent}. Vessel outcomes \textsc{Rescued}/\textsc{Lost} match Fig.~\ref{fig:fsm}; the asset is removed from \texttt{rescue\_agents} when the case closes.}
-\label{fig:sar-fsm}
 \end{figure*}
 
 \section{Default Constants}
