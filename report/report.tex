@@ -20,15 +20,15 @@
        in a Multi-Agent Maritime Safety Simulation:\\
        A Baltic--North Sea Case Study}
 
-\author[affiliation={1}]{Micha\l}{Pytel}
 \author[affiliation={1}]{Pawe\l}{Pozorski}
+\author[affiliation={1}]{Micha\l}{Pytel}
 
 \address{
     $^1$ Warsaw University of Technology, Poland
 }
 
 \email{
-    \{michal.pytel2, pawel.pozorski\}@pw.edu.pl
+    \{pawel.pozorski, michal.pytel2\}@pw.edu.pl
 }
 
 \keywords{maritime safety, multi-agent systems, agent-based modelling,
@@ -557,57 +557,162 @@ Baseline~A ignores this factor. Inside the storm zone an extra factor applies: $
 \label{sec:results}
 % ==================================================================
 
-\subsection{Calibration and Storm Contrast}
-\label{sec:results-calib}
+We report four complementary experiment tiers. (i)~The \emph{definitive} factorial uses paper defaults: four scenarios $\times$ three methods $\times$ $30$ seeds $\times$ $2880$ ticks ($360$ runs), with IWRAP $N_c$ stamped on every row. (ii)~A Tier-1 storm grid varies $\texttt{storm\_comms\_success\_rate}\in\{0.04,0.08,0.15\}$ and $\texttt{storm\_radius\_nm}\in\{120,160,200\}$ on Calm+Storm (five seeds). (iii)~The best Tier-1 cell ($0.08$, $120$\,nm) is promoted to $30$ seeds. (iv)~A Tier-2 route-density sweep compares sparse ($45$), baseline ($80$), and dense ($105$) synthesised networks. Confirmation criteria are those of Section~\ref{sec:stats}. Figures~\ref{fig:kpi-dist}--\ref{fig:route-density} are seaborn summaries of these artifacts.
 
-Confirmation criteria are those of Section~\ref{sec:stats}. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts. Under Baseline~A, Calm Passage mean collisions were $0.60$ per $1\,000$ ship-hours (inside the $0.5$--$1.5$ band). Storm Corridor raised that rate to $1.48$ ($2.48\times$ calm), restoring a clear weather contrast after the depth+lane route rebase.
+\subsection{Definitive KPI Overview}
+\label{sec:results-overview}
+
+Table~\ref{tab:results-means} lists mean $\pm$ population SD for the three primary KPIs. Figure~\ref{fig:kpi-dist} shows the full per-run distributions. Under Baseline~A, Calm Passage collisions sit at $0.60\pm0.41$ per $1\,000$ ship-hours (inside the $0.5$--$1.5$ calibration band). Storm Corridor raises that rate to $1.48\pm0.71$ ($2.48\times$ calm). Blind Shore is the most collision-dense setting ($\approx1.4$--$1.7$), while Deep Water Rescue remains sparse ($\approx0.42$--$0.49$) but carries the only non-negligible fatal base rates.
+
+\begin{table*}[t]
+\centering
+\caption{Definitive batch means $\pm$ SD ($30$ seeds). Collisions and fatals per $1\,000$ ship-hours; $P_{\mathrm{prep}}$ dimensionless.}
+\label{tab:results-means}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}Xccc@{}}
+\toprule
+Scenario & Method & Collisions & Fatals & $P_{\mathrm{prep}}$ \\
+\midrule
+Calm Passage
+  & A & $0.60\pm0.41$ & $0.00\pm0.00$ & $0.67\pm0.03$ \\
+  & B & $0.51\pm0.45$ & $0.00\pm0.00$ & $0.74\pm0.03$ \\
+  & P & $0.48\pm0.33$ & $0.009\pm0.035$ & $0.80\pm0.03$ \\
+\midrule
+Storm Corridor
+  & A & $1.48\pm0.71$ & $0.00\pm0.00$ & $0.16\pm0.03$ \\
+  & B & $1.40\pm0.57$ & $0.002\pm0.013$ & $0.21\pm0.03$ \\
+  & P & $1.07\pm0.51$ & $0.002\pm0.012$ & $0.30\pm0.04$ \\
+\midrule
+Blind Shore
+  & A & $1.66\pm0.70$ & $0.005\pm0.017$ & $0.47\pm0.05$ \\
+  & B & $1.57\pm0.70$ & $0.002\pm0.012$ & $0.55\pm0.03$ \\
+  & P & $1.41\pm0.61$ & $0.007\pm0.020$ & $0.64\pm0.03$ \\
+\midrule
+Deep Water
+  & A & $0.49\pm0.43$ & $0.038\pm0.094$ & $0.48\pm0.05$ \\
+  & B & $0.44\pm0.35$ & $0.070\pm0.150$ & $0.55\pm0.04$ \\
+  & P & $0.42\pm0.41$ & $0.023\pm0.056$ & $0.65\pm0.04$ \\
+\bottomrule
+\end{tabularx}
+\end{table*}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=2\columnwidth]{figures/kpi_boxplots.png}
-\caption{Per-run KPI distributions for the definitive batch ($30$ seeds). A~=~Baseline~A, B~=~Baseline~B, P~=~Proposed.}
-\label{fig:kpi-box}
+\includegraphics[width=\textwidth]{figures/kpi_distributions.png}
+\caption{Definitive factorial KPI distributions ($30$ seeds). A/B/P denote Baseline~A, Baseline~B, and Proposed.}
+\label{fig:kpi-dist}
 \end{figure*}
 
 \subsection{Hypotheses H1--H3}
 \label{sec:results-h}
 
-Table~\ref{tab:results-h} summarises the pre-registered contrasts. \textbf{H1} and \textbf{H2} are not confirmed: fatal rates and survival ratios sit near floor/ceiling in Calm Passage, Storm Corridor, and Blind Shore, so tests have little power. Deep Water Rescue has a higher fatal base rate; Proposed reduces mean fatals from $0.038$ (Baseline~A) to $0.023$ (${\approx}39\,\%$), but survival is almost unchanged and neither contrast survives Holm ($p_{\mathrm{corr}}=1$, $|\delta|\le 0.02$). \textbf{H3} is non-significant (means $0.0022$ vs $0.0024$).
+Table~\ref{tab:results-h} breaks the pre-registered contrasts down by scenario. \textbf{H1} and \textbf{H2} are not confirmed anywhere after Holm: fatal rates and survival ratios sit near floor/ceiling in Calm, Storm, and Blind Shore ($|\delta|\le 0.07$). Deep Water Rescue has the only material fatal mass; Proposed reduces mean fatals from $0.038$ (A) to $0.023$ (${\approx}39\,\%$), but $\delta\approx0.01$ and $p_{\mathrm{corr}}=1$. \textbf{H3} is likewise null (Storm fatals $0.0024$ vs $0.0022$). Figure~\ref{fig:hyp-heat} places these effect sizes next to the collision and preparedness contrasts: the only consistently confirmed A$\to$P lever is $P_{\mathrm{prep}}$.
 
 \begin{table}[t]
 \centering
-\caption{Pre-registered hypothesis outcomes (definitive $30$-seed batch).}
+\caption{Pre-registered hypotheses by scenario (Proposed vs A for H1/H2; vs B for H3).}
 \label{tab:results-h}
 \small
-\begin{tabularx}{\columnwidth}{@{}lXcc@{}}
+\begin{tabularx}{\columnwidth}{@{}llXcc@{}}
 \toprule
-Hyp. & Contrast & Verdict & Cliff's $\delta$ \\
+Hyp. & Scenario & Means (ref$\to$P) & $\delta$ & Verdict \\
 \midrule
-H1 & Fatal rate, Proposed vs A & Not confirmed & $|\delta|\le 0.07$ \\
-H2 & Survival ratio, Proposed vs A & Not confirmed & $|\delta|\le 0.07$ \\
-H3 & Fatals under Storm, Proposed vs B & Not confirmed & $\delta\approx 0.00$ \\
+H1 & Calm & $0.000\to0.009$ & $-0.07$ & Not conf. \\
+H1 & Storm & $0.000\to0.002$ & $-0.03$ & Not conf. \\
+H1 & Blind & $0.005\to0.007$ & $-0.03$ & Not conf. \\
+H1 & Deep & $0.038\to0.023$ & $+0.01$ & Not conf. \\
+H2 & all four & survival $\ge0.995$ & $|\delta|\le0.07$ & Not conf. \\
+H3 & Storm & $0.0024\to0.0022$ & $+0.00$ & Not conf. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/hypothesis_deltas.png}
-\caption{Cliff's $\delta$ for H1--H3-relevant pairs. Green: confirmed; amber: significant only; grey: not significant after Holm.}
-\label{fig:hyp-delta}
+\includegraphics[width=\columnwidth]{figures/hypothesis_heatmap.png}
+\caption{Cliff's $\delta$ for Baseline~A vs Proposed. Green boxes mark Holm-confirmed cells ($|\delta|\ge0.2$, $p_{\mathrm{corr}}<0.05$).}
+\label{fig:hyp-heat}
 \end{figure}
 
-\subsection{Mechanism and Collisions}
+\subsection{Mechanism: Preparedness and Storm Collisions}
 \label{sec:results-mech}
 
-Mean $P_{\mathrm{prep}}$ is higher for Proposed than for either baseline in every scenario, with confirmed effects ($|\delta|\in[0.90,1.00]$); mean Storm Corridor collisions fall from $1.48$ to $1.07$ versus Baseline~A (${\approx}28\,\%$, $\delta{=}0.32$), but that contrast is not significant after Holm.
+Mean $P_{\mathrm{prep}}$ rises monotonically A$<$B$<$P in every scenario, with all twelve pairwise contrasts confirmed ($|\delta|\in[0.72,1.00]$; Fig.~\ref{fig:prep-coll}, left). That matches the design of $\alpha_M$ and $m(\text{method})$. On Storm Corridor collisions (Fig.~\ref{fig:prep-coll}, right), Proposed cuts the Baseline~A mean from $1.48$ to $1.07$ (${\approx}28\,\%$, $\delta=0.32$, raw $p\approx0.035$), but the contrast does not survive family-wise Holm correction. Blind Shore shows a similar directional drop ($1.66\to1.41$) without confirmation.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/preparedness_collisions.png}
+\caption{Left: $P_{\mathrm{prep}}$ violins (definitive). Right: Storm Corridor collision strip with mean $\pm$95\,\% CI.}
+\label{fig:prep-coll}
+\end{figure*}
+
+\subsection{IWRAP Network Frequency}
+\label{sec:results-iwrap}
+
+Every definitive run carries an IWRAP Mk~II stamp $N_c$ from the static route network, fleet size, and method speed scale (Table~\ref{tab:results-iwrap}). Values lie in $0.001$--$0.005$ collisions/yr---well inside the ${<}1$/yr/fairway band---and decrease for weather-aware methods because slower traffic reduces encounter opportunity. Stamps are identical for Storm and Blind at equal fleet ($N=25$), as expected for a geometry-only check.
+
+\begin{table}[t]
+\centering
+\caption{Mean IWRAP $N_c$ (collisions/yr) stamped on the definitive batch.}
+\label{tab:results-iwrap}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Scenario ($N$) & A & B & P \\
+\midrule
+Calm ($20$) & $0.0033$ & $0.0028$ & $0.0025$ \\
+Storm / Blind ($25$) & $0.0051$ & $0.0043$ & $0.0040$ \\
+Deep ($15$) & $0.0018$ & $0.0016$ & $0.0014$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Storm Hyperparameter Sensitivity}
+\label{sec:results-storm}
+
+Figure~\ref{fig:storm-sweep} summarises the Tier-1 grid (five seeds; Calm collisions are invariant to storm knobs, as expected). Storm/Calm ratios span roughly $2.0$--$3.5\times$. The paper default ($0.08$, $160$\,nm) yields $2.39\times$. The calibration objective prefers ($0.08$, $120$\,nm) at $2.64\times$ with Calm A collisions $\approx0.66$. Promoting that cell to $30$ seeds keeps a clear weather contrast ($2.27\times$) but does \emph{not} unlock H1--H3: fatal reductions remain null or reverse, confirming that fatal sparsity---not storm geometry alone---limits hypothesis power.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/storm_sweep_heatmap.png}
+\caption{Tier-1 storm grid (Baseline~A, five seeds). Left: Calm collisions. Right: Storm/Calm ratio (diverging around the $2.7\times$ target).}
+\label{fig:storm-sweep}
+\end{figure*}
+
+\subsection{Route-Density Sensitivity}
+\label{sec:results-routes}
+
+Table~\ref{tab:results-routes} and Figure~\ref{fig:route-density} compare sparse ($45$), baseline ($80$), and dense ($105$) networks under paper storm defaults (five seeds). Sparse traffic sits nearest the dual calibration targets (Calm A $\approx0.91$, Storm/Calm $\approx2.66\times$). Denser lanes lower absolute collision rates and compress the weather contrast ($1.85\times$), so the storm stressor becomes harder to see. Method ordering on $P_{\mathrm{prep}}$ is unchanged. We therefore retain the committed $80$-route baseline for the definitive claim, and treat sparse/dense as a structural sensitivity rather than a retune.
+
+\begin{table}[t]
+\centering
+\caption{Tier-2 route density (five seeds): Baseline~A collisions and Storm/Calm ratio.}
+\label{tab:results-routes}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Network & Routes & Calm A & Storm/Calm \\
+\midrule
+Sparse & $45$ & $0.91$ & $2.66\times$ \\
+Baseline & $80$ & $0.66$ & $2.39\times$ \\
+Dense & $105$ & $0.48$ & $1.85\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/route_density.png}
+\caption{Tier-2 collisions by route network, method, and scenario (five seeds).}
+\label{fig:route-density}
+\end{figure*}
 
 % ==================================================================
 \section{Discussion}
 \label{sec:discussion}
 % ==================================================================
 
-The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and both crews allow it. The batch confirms the preparedness lever and a directional storm-collision benefit, but not the pre-registered fatal/survival thresholds. Fatal events are rare outside Deep Water Rescue, so H1--H3 are under-powered even when point estimates move in the expected direction. The survival factor $S_i$ (Eq.~\ref{eq:sfactor}) is a SOLAS-shaped surrogate, not a full residual-stability calculation. Main limitations: synthesised routes trade some traffic realism for control; the lower-id give-way rule simplifies COLREGs; force-field avoidance is off by default; IWRAP stamps use static routes rather than per-run tracks. Calm Passage calibration under Baseline~A sits near published AIS near-miss bands~\cite{silveira2013,zhang2015}. Longer runs or collision-rate primary endpoints would raise power on fatal contrasts.
+The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and both crews allow it. Across the definitive factorial, the storm grid, the $30$-seed promote, and the route-density sweep, the batch confirms the preparedness lever and a directional storm-collision benefit, but not the pre-registered fatal/survival thresholds. Fatal events remain rare outside Deep Water Rescue, so H1--H3 are under-powered even when point estimates move in the expected direction. Storm radius/comms and network density shift absolute rates and weather contrast, yet they do not create a fatal-signal where the MOB window rarely elapses. IWRAP stamps ($0.001$--$0.005$/yr) place the synthesised network in a credible low-frequency band. The survival factor $S_i$ (Eq.~\ref{eq:sfactor}) is a SOLAS-shaped surrogate, not a full residual-stability calculation. Main limitations: synthesised routes trade some traffic realism for control; the lower-id give-way rule simplifies COLREGs; force-field avoidance is off by default; IWRAP uses static routes rather than per-run tracks. Calm Passage calibration under Baseline~A sits near published AIS near-miss bands~\cite{silveira2013,zhang2015}. Longer runs or collision-rate primary endpoints would raise power on fatal contrasts.
 
 \bibliographystyle{IEEEtran}
 \bibliography{mybib}
