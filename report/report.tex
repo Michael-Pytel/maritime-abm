@@ -7,9 +7,14 @@
 \usepackage{tabularx}
 \usepackage{booktabs}
 \usepackage{array}
-\usepackage{enumitem}
+\usepackage{placeins}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+
+% Wikipedia overview footnote for systems/standards without a dedicated paper cite.
+\newcommand{\wikifn}[1]{%
+  \footnote{\url{https://en.wikipedia.org/wiki/#1}}%
+}
 
 \title{Human-Factor-Coupled Collision Avoidance and Search-and-Rescue\\
        in a Multi-Agent Maritime Safety Simulation:\\
@@ -35,7 +40,7 @@ collision avoidance, human factors, search and rescue}
 
 % ------------------------------------------------------------------
 \begin{abstract}
-Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and adverse weather compounds it by degrading both perception and the very communications crews rely on to coordinate avoidance. We present a tick-based maritime agent-based model on the real Baltic and North Sea, in which vessels follow depth- and lane-constrained shipping tracks synthesised from open bathymetry and AIS traffic-density data, and resolve encounters through a Closest-Point-of-Approach (CPA) detector coupled to a COLREGs-style give-way rule. The contribution is a quantified causal chain from \emph{environmental and human degradation} to \emph{collision outcome}: the success of every collision-warning exchange is gated by the product of local weather severity and a circadian crew-fatigue scalar, so tired watch-keepers in heavy weather miss warnings and collide. Collision consequences are evaluated with an accredited probabilistic damage model (DTU SIMCOL), external collision frequency is cross-validated against the regulator-grade IWRAP Mk II model, and a search-and-rescue subsystem layers IAMSAR random-search detection (MASSIM) with month-conditioned Arctic environmental degradation (Ashrafi). Against a classical and a weather-aware baseline, the system is evaluated across four scenarios with 30 seed-matched runs per condition using Mann--Whitney U tests with Holm--Bonferroni correction and Cliff's $\delta$ effect sizes. We hypothesise that fatigue-aware watch scheduling reduces the fatal-event rate by ${\geq}20\,\%$ and improves post-incident survival by ${\geq}15\,\%$ relative to the classical baseline.
+Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018}, and heavy weather makes coordination harder by degrading both perception and bridge-to-bridge radio. We present a tick-based agent-based model of Baltic and North Sea traffic. Vessels follow depth- and lane-constrained routes built from open bathymetry and Automatic Identification System (AIS) density data. Encounters are resolved with a Closest Point of Approach (CPA) check and a COLREGs-style give-way rule (International Regulations for Preventing Collisions at Sea). The main modelling choice is that every collision warning succeeds only with probability equal to the product of a local weather factor and a crew-fatigue factor. Collision damage uses DTU SIMCOL~\cite{lutzen2001}; route-network collision frequency is checked with IWRAP Mk~II~\cite{friishansen2008iwrap}; rescue follows IAMSAR practice~\cite{imosar2018} with MASSIM/Koopman random search~\cite{karatas2018,koopman1980} and Ashrafi seasonal degradation~\cite{ashrafi2024}. We compare a classical baseline, a weather-aware baseline, and a fatigue-aware Proposed System across four scenarios ($30$ seeds each; $360$ runs) with Mann--Whitney U tests, Holm--Bonferroni correction, and Cliff's~$\delta$. Pre-registered fatal-rate and survival thresholds (H1--H3) were not confirmed after correction. Preparedness $P_{\mathrm{prep}}$ rose with large confirmed effects in every scenario ($|\delta|\ge 0.90$). Mean Storm Corridor collisions fell by about $28\,\%$ versus Baseline~A ($\delta{=}0.32$, not significant after Holm).
 \end{abstract}
 
 % ==================================================================
@@ -43,17 +48,16 @@ Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018
 \label{sec:intro}
 % ==================================================================
 
-Maritime transport carries roughly 80\,\% of global trade, yet the sector's safety record is dominated by a persistent human-error problem. The International Maritime Organization (IMO) attributes 70--96\,\% of all incidents to human causes~\cite{imohuman2018}, and the European Maritime Safety Agency (EMSA) identifies weather as a compounding factor in a disproportionate share of total-loss events, particularly in congested coastal corridors where crew fatigue and information latency interact~\cite{emsa2023}. Hull and machinery insurance claims exceed USD 3.5\,billion annually~\cite{iumi2023}; even a 5\,\% reduction in fatal incidents would yield hundreds of millions in avoided liability.
+Maritime transport moves most of world trade, but safety remains limited by human factors. The International Maritime Organization (IMO)\wikifn{International_Maritime_Organization} attributes $70$--$96\,\%$ of incidents to human causes~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters. Hull and machinery claims remain large~\cite{iumi2023}.
 
-The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} provide a deterministic collision-avoidance baseline whose implicit assumption --- that crews perceive the encounter geometry accurately and communicate intentions reliably --- fails under two compounding conditions that prior agent-based maritime simulation~\cite{tam2010,silveira2013,zhang2015} rarely couples directly to outcome:
+The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972}\wikifn{International_Regulations_for_Preventing_Collisions_at_Sea} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}:
 
 \begin{itemize}
-    \item \textbf{Environmental degradation of communication.} Reduced visibility, sea clutter, and heavy weather degrade the bridge-to-bridge (VHF) exchanges through which two converging vessels agree who gives way. Most collision-avoidance models assume that, once a risk is detected, the manoeuvre is always executed.
-
-    \item \textbf{Human-factor coupling.} Crew fatigue accumulates over watch cycles and follows a circadian pattern with a late-night performance nadir~\cite{chauvin2013}. Prior models isolate fatigue in peripheral sub-models without a direct, quantified connection to whether a warning is acted upon.
+    \item \textbf{Weather and radio.} Sea clutter and storms reduce the chance that a marine VHF\wikifn{Marine_VHF_radio} warning is heard and acted on. Many models assume that once risk is detected, the manoeuvre always happens.
+    \item \textbf{Crew fatigue.} Fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}. Prior work often keeps fatigue in a side model, without a direct link to whether a warning is executed.
 \end{itemize}
 
-The contribution of this work is a maritime agent-based model in which the success probability of every collision-warning exchange is the \emph{product} of an environmental factor and a crew-fatigue factor, creating a quantified causal link from \emph{information quality under stress} to \emph{collision and survival outcomes}. We build the model on the real Baltic and North Sea geography (Section~\ref{sec:model}), drive vessels along hand-authored shipping tracks, and resolve encounters with a CPA/TCPA detector and a COLREGs-style give-way rule (Section~\ref{sec:avoidance}). Collision consequences use the accredited DTU SIMCOL probabilistic damage model (Section~\ref{sec:consequence}); the resulting collision frequency is cross-validated against IWRAP Mk II (Section~\ref{sec:iwrap}); and a search-and-rescue subsystem (Section~\ref{sec:sar}) closes the loop from incident to survival. The engine is implemented in Rust on the krABMaga agent-based framework~\cite{krabmaga2023} for deterministic, data-parallel batch execution. Figure~\ref{fig:causal} summarises the causal pipeline that ties these components together.
+This paper couples those effects in one product: warning success depends on both local weather and crew fatigue. The model runs on real Baltic--North Sea geography (Section~\ref{sec:model}). Routes are synthesised from bathymetry and Automatic Identification System (AIS)\wikifn{Automatic_identification_system} traffic density (Section~\ref{sec:routegen}). Avoidance uses Closest Point of Approach / Time to CPA (CPA/TCPA)\footnote{Standard radar/AIS encounter metrics: distance and time to the predicted closest point of approach. Overview: \url{https://en.wikipedia.org/wiki/Collision_avoidance}} and a simple give-way rule (Section~\ref{sec:avoidance}). Damage uses the DTU ship-collision model SIMCOL~\cite{lutzen2001} (Section~\ref{sec:consequence}); frequency is checked with IALA IWRAP~\cite{friishansen2008iwrap} (Section~\ref{sec:iwrap}); survivors enter a search-and-rescue (SAR)\wikifn{Search_and_rescue} chain (Section~\ref{sec:sar}). The engine is Rust on krABMaga~\cite{krabmaga2023}. Figure~\ref{fig:causal} summarises the causal chain.
 
 \begin{figure*}[t]
 \centering
@@ -92,63 +96,56 @@ The contribution of this work is a maritime agent-based model in which the succe
   \draw[arr] (sim) -- node[above, font=\footnotesize]{founder} (sar);
 \end{tikzpicture}%
 }
-\caption{Causal pipeline of the model. Local weather $W$ and crew fatigue $F$ jointly set the collision-warning success probability $P_{\text{comms}}$ (Eq.~\ref{eq:pcomms}); a delivered warning yields a give-way manoeuvre, a lost warning leaves the encounter to geometry and may produce a hard collision. Collision consequences are evaluated by the SIMCOL damage model, and a foundering vessel enters the search-and-rescue chain.}
+\caption{Causal pipeline. Weather $W$ and fatigue $F$ set warning success $P_{\text{comms}}$ (Eq.~\ref{eq:pcomms}). A delivered warning yields a give-way manoeuvre; a missed warning leaves the encounter to geometry. Hard collisions are scored with SIMCOL; a foundering ship enters SAR.}
 \label{fig:causal}
 \end{figure*}
 
 % ==================================================================
-\section{Research Objectives}
+\section{Objectives and Hypotheses}
 \label{sec:goal}
 % ==================================================================
 
-The central thesis is: \emph{coupling crew-fatigue dynamics to the reliability of collision-warning communication, and managing fatigue through smart watch scheduling, reduces fatal maritime outcomes more effectively than weather-unaware classical practice.}
+We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations:
 
 \begin{description}
-    \item[Experimental conditions.] All experiments compare three methods, implemented as configuration switches over a single agent codebase:
-        \begin{description}[leftmargin=2.2em, labelindent=0pt]
-            \item[Baseline~A (Classical)] represents current weather-unaware practice: vessels follow COLREGs give-way with nominal fair-weather VHF, no weather-induced slowdown, and an unmanaged fatigue build-up. Heavy-weather comms degradation is environmental (Section~\ref{sec:avoidance}) and therefore still applies to Baseline~A inside the storm corridor --- it has no privileged radio; what it lacks is the \emph{behavioural} mitigation (speed reduction, managed fatigue) the other methods apply.
-            \item[Baseline~B (Shore Rest Alerts)] adds weather-aware speed reduction and shore-issued rest advisories that slow fatigue accumulation, but no further mitigation.
-            \item[Proposed System] adds smart watch scheduling (lowest fatigue build-rate) on top of the weather-aware mitigations of Baseline~B. Performance is measured using six KPIs defined in Table~\ref{tab:kpis}.
-        \end{description}
+    \item[Baseline~A (Classical)] COLREGs give-way, no weather-aware slowdown, unmanaged fatigue. Storm radio loss still applies inside the storm zone --- it is environmental, not a privilege of other methods.
+    \item[Baseline~B (Shore Rest Alerts)] Weather-aware speed reduction and slower fatigue build-up; no further mitigation.
+    \item[Proposed System] Smart watch scheduling (lowest fatigue build-rate) on top of Baseline~B. Six KPIs are defined in Table~\ref{tab:kpis}.
+\end{description}
 
-    \item[Falsifiable hypotheses.] They drive all design decisions; any component that contributes to none of them is excluded.
-        \begin{description}[leftmargin=2.2em, labelindent=0pt]
-            \item[\textbf{H1.}] Fatigue-aware scheduling (Proposed) reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U, Cliff's $|\delta| \geq 0.2$).
-            \item[\textbf{H2.}] Earlier, better-coordinated avoidance and a functioning rescue chain improve post-incident survival (Table~\ref{tab:kpis}, KPI~4) by ${\geq}15\,\%$ versus Baseline~A.
-            \item[\textbf{H3.}] The Proposed System outperforms Baseline~B on the fatal-event rate ($p < 0.05$) under the storm-corridor scenario, where comms degradation is most severe.
-        \end{description}
+\noindent We use them for the following hypotheses:
+
+\begin{description}
+    \item[H1.] Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U, Cliff's $|\delta| \geq 0.2$).
+    \item[H2.] Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A.
+    \item[H3.] Under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
 \end{description}
 
 % ==================================================================
-\section{System Model}
+\section{Simulation Model}
 \label{sec:model}
 % ==================================================================
 
-\subsection{World Geometry and Projection}
+This section defines the world, agents, routes, and weather field used by all methods.
 
-The simulation occupies the real Baltic and North Sea basin, bounded by latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E --- from the English Channel and Dutch coast in the south-west to the Gulf of Finland in the east and the mid-Norwegian coast in the north. The domain is mapped with an equirectangular projection carrying a cosine-of-mid-latitude correction, so that one field unit equals exactly one nautical mile on both axes at the reference parallel $\phi_0 = \tfrac12(\phi_{\min}+\phi_{\max}) = 58.25^\circ$. With $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$, a geodetic point projects to field coordinates
-%
-\begin{equation}
+\subsection{Domain and Time}
+
+The domain is the Baltic and North Sea: latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E. An equirectangular\wikifn{Equirectangular_projection} map with a mid-latitude correction sets one field unit to one nautical mile\wikifn{Nautical_mile} at $\phi_0 = 58.25^\circ$:
+\begin{equation*}
   x = (\lambda - \lambda_{\min})\,k_{\text{lon}}, \qquad
-  y = (\phi - \phi_{\min})\,k_{\text{lat}}.
-  \label{eq:proj}
-\end{equation}
-%
-The domain measures $930$\,nm north--south ($15.5^\circ \times 60$) and ${\approx}1136$\,nm east--west; the residual east--west distortion is at most ${\sim}6$--$10\,\%$ at the box edges and is accepted without correction terms, so the engine treats all distances as Euclidean nautical miles. The coastline is loaded from Natural-Earth polygons into an R-tree spatial index supporting accelerated point-in-polygon (land) and segment-intersection (grounding) tests. Sea depth, used only offline for route planning (Section~\ref{sec:routegen}), is taken from a separate gridded bathymetry product and is not consulted during the tick loop.
+  y = (\phi - \phi_{\min})\,k_{\text{lat}},
+\end{equation*}
+with $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$. East--west distortion at the box edges is about $6$--$10\,\%$ and is left uncorrected; distances inside the engine are Euclidean nautical miles. Coastline polygons from Natural Earth\wikifn{Natural_Earth} sit in an R-tree\wikifn{R-tree} for land and grounding tests. Bathymetry is used only offline for route planning (Section~\ref{sec:routegen}).
 
-\subsection{Time Resolution}
+Time steps are $\Delta t = 15$\,min ($0.25$\,h). The default run length is $T = 2880$ ticks ($30$ days). A wall-clock variable starts at 06:00\,UTC and drives the circadian fatigue term (Section~\ref{sec:fatigue}). Each run uses one seeded \texttt{SmallRng}, so the same seed yields identical KPI logs.
 
-Time advances in discrete ticks of $\Delta t = 15$\,min ($0.25$\,h). The default horizon is $T = 2880$ ticks ($30$ days). A wall-clock-of-day variable, initialised at 06:00\,UTC, advances $0.25$\,h per tick and drives the circadian fatigue term (Section~\ref{sec:fatigue}). All stochastic draws use a single per-run seeded generator (\texttt{SmallRng}), so identical seeds reproduce byte-identical KPI logs.
+\subsection{Vessels and Voyage Logic}
 
-\subsection{Agent Types and Voyage Logic}
+Agents are ships; after an incident, rescue assets appear (Section~\ref{sec:sar}). Ship $i$ has position $\mathbf{p}_i$, waypoint route $R_i$, travel direction $d_i \in \{+1,-1\}$, heading $\psi_i$, cruise speed $v_i$, state $\sigma_i \in \{\textsc{Active}, \textsc{Docked}\}$, crew $n_i = 10$, and fatigue $F_i \in [0,1]$.
 
-The model contains vessel agents and, on incident, rescue agents (Section~\ref{sec:sar}). Each vessel $i$ carries position $\mathbf{p}_i$, an ordered route $R_i = (\mathbf{w}_0,\dots,\mathbf{w}_{m-1})$ of waypoints, a route index and travel direction $d_i \in \{+1,-1\}$, heading $\psi_i$, cruise speed $v_i$, a discrete state $\sigma_i \in \{\textsc{Active}, \textsc{Docked}\}$, crew count $n_i = 10$, and an internal fatigue scalar $F_i \in [0,1]$.
-
-Routes are \emph{synthesised procedurally} rather than replayed from raw AIS or drawn by hand: a deterministic, depth- and lane-aware planner (Section~\ref{sec:routegen}) generates ordered keypoint polylines stored as \texttt{data/ais\_paths.json} with schema \texttt{mmsi/name/vessel\_type/waypoints[]}. This keeps the traffic substrate controlled and reproducible for the information-quality experiment, while guaranteeing that every lane is deep enough for its vessel class and follows the corridors real traffic uses. Ports are a generated set of polygons (\texttt{data/ports.json}) placed on real harbours; a vessel that enters a port polygon docks.
-
-Cruise speed is drawn at spawn by vessel type ($u \sim \mathcal{U}(0,1)$):
-%
-\begin{equation}
+Routes are synthesised once (Section~\ref{sec:routegen}) and stored as \texttt{data/ais\_paths.json}. Ports are polygons in \texttt{data/ports.json}. Entering a port docks the ship.
+ Cruise speed is drawn at spawn ($u \sim \mathcal{U}(0,1)$):
+\begin{equation*}
   v_i =
   \begin{cases}
   15 + 8u & \text{passenger / ferry / ro-ro / ro-pax}\\
@@ -156,23 +153,24 @@ Cruise speed is drawn at spawn by vessel type ($u \sim \mathcal{U}(0,1)$):
   10 + 6u & \text{cargo / container / bulk}\\
   10 + 10u & \text{otherwise.}
   \end{cases}
-  \label{eq:speed}
-\end{equation}
-%
-\textbf{Waypoint pursuit.} With active target $\mathbf{t}$ (an avoidance waypoint if queued, else the current route waypoint), $\boldsymbol{\delta} = \mathbf{t} - \mathbf{p}_i$ and $\rho = \lVert\boldsymbol{\delta}\rVert$, a waypoint is reached when $\rho < 0.5$\,nm. The per-tick step is $s = \min(v_i\,\Delta t,\ \rho)$ and the proposed move is $\mathbf{p}_i' = \mathbf{p}_i + (\boldsymbol{\delta}/\rho)\,s$, with compass heading $\psi_i = (90^\circ - \operatorname{atan2}(\delta_y,\delta_x)) \bmod 360^\circ$. To prevent tunnelling through thin landmasses, the move is accepted at the first of up to five geometrically halved step lengths $s\cdot 2^{-j}$ ($j=0,\dots,4$) whose segment does not cross land; a post-move grounding guard reverts $\mathbf{p}_i$ to the last valid position if it ended on land. On reaching a port or route endpoint a vessel docks for a randomised dwell $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses ($d_i \leftarrow -d_i$). A fixed fleet size $N$ is maintained: when $|\text{fleet}| < N$, a fresh vessel is spawned onto a random hand-authored track.
+\end{equation*}
 
-\textbf{Same-destination following.} Co-directional traffic bound for the same destination is not separated by the give-way rule (an overtaking pair has near-zero relative velocity, Section~\ref{sec:avoidance}), so a leader--follower discipline prevents vessels from drawing up side-by-side and overlapping. Two vessels share a destination when their route endpoints (in the travel direction) lie within $5$\,nm of each other. A trailing vessel within a vicinity $r_v = 3$\,nm of such a leader --- the vessel ahead, i.e.\ closer to the shared destination --- caps its speed to the leader's, so it matches speed and does not overtake; if it closes within a keep-distance gap $g = 0.5$\,nm it holds station (anchors). On first acquiring a leader it is radioed to slow down, match speed, and keep distance. This applies anywhere the courses converge, not only at the port mouth, and yields a stop-and-go queue whose throughput matches the leader's speed.
+\begin{description}
+    \item[Waypoint pursuit.] The active target is an avoidance waypoint if one is queued, otherwise the current route waypoint. A waypoint is reached within $0.5$\,nm. The step length is $s = \min(v_i\,\Delta t,\ \rho)$. Moves use up to five geometrically halved lengths so thin land is not tunnelled; a post-move check reverts grounding to the last valid position. At a port or route end the ship dwells $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses. Fleet size $N$ is held fixed: when a ship is removed, a new one is spawned on a random synthesised track.
+    \item[Same-destination following.] Co-directional ships with endpoints within $5$\,nm share a destination. A trailer within $3$\,nm of a leader matches the leader's speed; within $0.5$\,nm it holds station. This avoids side-by-side overlap that the give-way rule does not separate.
+\end{description}
 
-\subsection{Route Generation from Bathymetry and Traffic Density}
+
+\subsection{Route Generation}
 \label{sec:routegen}
 
-Rather than replaying raw AIS or hand-drawing lanes, the traffic substrate is \emph{synthesised} by a deterministic, depth-aware route planner, so the geometry is reproducible yet physically defensible for large vessels. Two open datasets ground it. Sea depth comes from the EMODnet Digital Bathymetry (DTM), a gridded product at $1/16'$ ($\approx$115\,m) resolution covering the whole basin~\cite{emodnetbathymetry}. Empirical shipping lanes come from the EMODnet Human Activities vessel-density maps --- AIS-derived ship-hours per km$^2$ resolved by vessel type~\cite{emodnetvesseldensity}, consistent with the use of AIS density to characterise traffic patterns~\cite{silveira2013}. Both are fetched once through their open OGC Web Coverage Services (\texttt{ows.emodnet-bathymetry.eu} and \texttt{ows.emodnet-humanactivities.eu}) and bundled as compact grids by \texttt{tools/fetch\_bathymetry.py} and \texttt{tools/fetch\_lanes.py}; generation itself runs offline. Ports are a built-in gazetteer of $42$ major Baltic / North-Sea harbours, each snapped onto navigable water.
+Traffic geometry is produced offline so experiments stay reproducible. Depth comes from the EMODnet DTM~\cite{emodnetbathymetry}. Lane attractiveness comes from EMODnet vessel-density maps~\cite{emodnetvesseldensity,silveira2013}. Both are fetched once via the OGC Web Coverage Service (WCS)\wikifn{Web_Coverage_Service} and stored as grids. Ports are a gazetteer of $42$ harbours snapped to navigable water.
 
-\textbf{Navigability by draft.} Each vessel class $c$ has a static draft $T_c$ and a required under-keel clearance $\text{UKC}_c$, following harbour-approach-channel practice~\cite{pianc2014}. A grid cell of charted depth $h$ is navigable for the class iff $h \ge T_c + \text{UKC}_c + m_s$, with a coarse-grid safety buffer $m_s = 2$\,m; Table~\ref{tab:draft} gives the three classes (deep-draft {VLCC}s are excluded, as they cannot transit the Danish Straits into the Baltic). Because navigability is a \emph{depth} test, shallow archipelago water is impassable regardless of whether individual skerries are resolved in the coastline polygons --- structurally preventing the routes from cutting across islands or shoals.
+Each class $c$ has draft $T_c$ and under-keel clearance ($\text{UKC}_c$)\wikifn{Under_keel_clearance}~\cite{pianc2014}. A cell of depth $h$ is navigable iff $h \ge T_c + \text{UKC}_c + m_s$ with buffer $m_s = 2$\,m (Table~\ref{tab:draft}). Deep-draft very large crude carriers (VLCCs)\wikifn{Very_large_crude_carrier} are excluded (Danish Straits).
 
 \begin{table}[h]
 \centering
-\caption{Vessel-class minimum transit depth (draft + under-keel clearance).}
+\caption{Minimum transit depth by vessel class (draft + under-keel clearance).}
 \label{tab:draft}
 \begin{tabular}{lccc}
 \toprule
@@ -185,192 +183,155 @@ Tanker    & 14.0 & 3.0 & 17 \\
 \end{tabular}
 \end{table}
 
-\textbf{Cost-field planner.} Between a sampled origin/destination port pair the planner runs a weighted A\textsuperscript{*} search~\cite{hart1968astar} on a $1$\,nm grid. Each navigable cell carries a cost multiplier
-%
-\begin{equation}
+Between sampled port pairs, a weighted A\textsuperscript{*} planner~\cite{hart1968astar} runs on a $1$\,nm grid. Cell cost uses
+\begin{equation*}
   \mu = 1 + w_h\,s_h + w_d\,s_d + w_\ell\,(1 - a_\ell),
-  \label{eq:routecost}
-\end{equation}
-%
-penalising cells whose depth is close to the class limit ($s_h \in [0,1]$, a squat / safety margin), cells within a $2.5$\,nm offing of shore or shoal ($s_d \in [0,1]$, from a multi-source distance transform of the impassable cells), and cells \emph{off} the class's lane ($a_\ell \in [0,1]$ the normalised vessel-density attractiveness for that class). The cost of a move is the inter-cell distance times the mean of the two endpoint multipliers; since $\mu \ge 1$ the octile distance remains an admissible heuristic. With weights $(w_h, w_d, w_\ell) = (3, 4, 2.5)$ the least-cost paths hold deep water down the middle of a channel, keep an offing from the coast, and gravitate to the corridors that class of ship actually uses.
+\end{equation*}
+penalising shallow margins ($s_h$), proximity to shore/shoal ($s_d$), and off-lane cells ($a_\ell$). Default weights are $(w_h, w_d, w_\ell) = (3, 4, 2.5)$. Paths are simplified under a depth constraint and checked against raw bathymetry every $0.15$\,nm. Seeded cost jitter keeps outputs deterministic per seed. The default network has $80$ routes ($35$ cargo, $25$ passenger, $20$ tanker).
 
-\textbf{Post-processing and determinism.} Each cell path is simplified (Ramer--Douglas--Peucker) under the constraint that no shortcut segment crosses water shallower than the class allows, and a final check against the raw bathymetry (sampled every $0.15$\,nm) guarantees the emitted polyline never dips below $T_c + \text{UKC}_c$. A small seeded per-route cost jitter makes the output deterministic for a given seed yet varied between seeds. On the default configuration the planner emits $80$ routes ($35$ cargo, $25$ passenger, $20$ tanker); verification confirms $0$ of ${\sim}10^5$ along-route samples below the class depth requirement, an ${\approx}84\,\%$ higher mean on-lane fraction than a depth-only planner, and correct transits of the deep-water Great Belt and Skagerrak between the North Sea and the Baltic.
-
-\subsection{Weather and Hazard Field}
+\subsection{Weather Field}
 \label{sec:weather}
 
-A $50\times50$-cell grid evolves three physical channels --- sea state $s$, visibility $v$, and wind $u$, each in $[0,1]$ --- which are fused into a scalar hazard $W_{ij}\in[0,1]$:
-%
+A $50\times50$ grid holds sea state $s$, visibility $v$, and wind $u$ in $[0,1]$. They fuse into hazard $W_{ij}\in[0,1]$:
 \begin{equation}
   W = \mathrm{clip}\left(\frac{w_s\,s + w_v\,(1-v) + w_u\,u}{w_s + w_v + w_u},\,0,\,1\right),
   \label{eq:W}
 \end{equation}
-%
-with weights $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. A vessel samples $W$ at its current cell only (nearest-cell lookup), so each vessel acts on local conditions. The field advances each tick through seven ordered stages (full parameters in Section~\ref{sec:weather-impl}): (i)~a two-state calm/storm regime Markov chain selecting mean-reversion targets; (ii)~up to eight Lagrangian storm cells with growth, decay, drift and removal; (iii)~an AR(1)-with-advection background per channel; (iv)~a system overlay imprinting storm cells onto the channels; (v)~cross-channel coupling; (vi)~5-point smoothing with a gradient limiter; and (vii)~hazard fusion via Eq.~\ref{eq:W}.
+with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, AR(1)\wikifn{Autoregressive_model} background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}).
 
-Independently of the stochastic field, the \textbf{storm corridor} scenario carries a single moving storm zone of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed lat/lon track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, both communication reliability (Section~\ref{sec:avoidance}) and vessel speed (Section~\ref{sec:speed}) are degraded.
+Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, communication and (for non-A methods) speed are degraded.
 
 % ==================================================================
-\section{Crew Fatigue Dynamics}
+\section{Crew Fatigue and Collision Avoidance}
 \label{sec:fatigue}
+\label{sec:avoidance}
 % ==================================================================
 
-Each vessel carries an internal fatigue scalar $F_i \in [0,1]$ ($0$ rested, $1$ exhausted), updated every tick. The circadian drive peaks near 03:00 and troughs near 15:00:
-%
-\begin{equation}
+Fatigue and avoidance form the mechanism behind H1--H3: warnings fail when weather is bad and crews are tired.
+
+\subsection{Fatigue Dynamics}
+
+Fatigue $F_i \in [0,1]$ updates every tick. The circadian drive peaks near 03:00:
+\begin{equation*}
   c(t_{\text{utc}}) = \tfrac12\Big(1 - \cos\big(\tfrac{2\pi (t_{\text{utc}} - 3)}{24}\big)\Big) \in [0,1].
-  \label{eq:circadian}
-\end{equation}
-%
-While \textsc{Active}, with local hazard $W$, fatigue accumulates as
-%
+\end{equation*}
+While \textsc{Active}, with local hazard $W$,
 \begin{equation}
   \Delta F = \big(\beta_{\text{base}} + \beta_W\,W + \beta_c\,c(t_{\text{utc}})\big)\,m(\text{method}),
   \label{eq:dF}
 \end{equation}
-%
-with $(\beta_{\text{base}}, \beta_W, \beta_c) = (0.0015,\,0.0040,\,0.0008)$ and a method build-rate
-%
+with $(\beta_{\text{base}}, \beta_W, \beta_c) = (0.0015,\,0.0040,\,0.0008)$ and
 \begin{equation}
   m(\text{method}) =
   \begin{cases}
-  1.00 & \text{Baseline A (unmanaged)}\\
-  0.82 & \text{Baseline B (shore rest alerts)}\\
-  0.65 & \text{Proposed (smart scheduling)},
+  1.00 & \text{Baseline A}\\
+  0.82 & \text{Baseline B}\\
+  0.65 & \text{Proposed},
   \end{cases}
   \label{eq:m}
 \end{equation}
-%
-and $F_i \leftarrow \min(1,\,F_i + \Delta F)$. While \textsc{Docked}, the crew recovers at $F_i \leftarrow \max(0,\,F_i - 0.025)$ per tick (full recovery in ${\approx}40$ ticks). The method factor $m$ is the sole lever distinguishing the three conditions' human-factor behaviour, isolating the effect of fatigue management.
+then $F_i \leftarrow \min(1,\,F_i + \Delta F)$. While \textsc{Docked}, recovery is $0.025$ per tick.
 
-\textbf{Fatigue $\to$ communication degradation.} Tired watch-keepers miss or delay warnings. With threshold $F^\ast = 0.40$ and maximum penalty $\kappa = 0.65$,
-%
+Above threshold $F^\ast = 0.40$, fatigue reduces warning reliability with maximum penalty $\kappa = 0.65$:
 \begin{equation}
   g(F_i) =
   \begin{cases}
   1, & F_i \le F^\ast\\[4pt]
   1 - \kappa\,\dfrac{F_i - F^\ast}{1 - F^\ast}, & F_i > F^\ast
   \end{cases}
-  \;\in [0.35,\ 1].
+  \in [0.35,\ 1].
   \label{eq:gF}
 \end{equation}
-%
-This factor multiplies into the collision-warning success probability (Eq.~\ref{eq:pcomms}), the mechanism through which fatigue translates into collisions.
 
-% ==================================================================
-\section{Collision Avoidance}
-\label{sec:avoidance}
-% ==================================================================
+\subsection{CPA Detection and Give-Way}
 
-\subsection{CPA / TCPA Detection}
-
-Each \textsc{Active} pair is screened with the standard linear-motion closest-point-of-approach result. The field-frame velocity for heading $\psi$ and speed $v$ is $\mathbf{v}(\psi,v) = v\,\Delta t\,(\sin\psi,\ \cos\psi)$. For a pair $(a,b)$ with relative position $\Delta\mathbf{p} = \mathbf{p}_b - \mathbf{p}_a$ and relative velocity $\Delta\mathbf{v} = \mathbf{v}_b - \mathbf{v}_a$,
-%
-\begin{equation}
+Each \textsc{Active} pair is screened with linear CPA. With relative position $\Delta\mathbf{p}$ and relative velocity $\Delta\mathbf{v}$,
+\begin{equation*}
   t^\ast = -\,\frac{\Delta\mathbf{p}\cdot\Delta\mathbf{v}}{\lVert\Delta\mathbf{v}\rVert^2},
   \qquad
   d_{\text{CPA}} = \big\lVert \Delta\mathbf{p} + t^\ast\,\Delta\mathbf{v} \big\rVert,
-  \label{eq:cpa}
-\end{equation}
-%
-with $t^\ast$ measured in ticks. Degenerate cases return $(d_{\text{CPA}}, t^\ast) = (\lVert\Delta\mathbf{p}\rVert, \infty)$ when $\lVert\Delta\mathbf{v}\rVert^2 < 10^{-9}$ (parallel) and $(\lVert\Delta\mathbf{p}\rVert, 0)$ when $t^\ast \le 0$ (diverging). A manoeuvre is considered iff \emph{all} of
-%
-\begin{equation}
-  \lVert\Delta\mathbf{p}\rVert \le 20\ \text{nm}, \quad
-  d_{\text{CPA}} \le 5\ \text{nm}, \quad
-  0 < t^\ast \le 12\ \text{ticks},
-  \label{eq:gate}
-\end{equation}
-%
-hold and the give-way vessel is not in avoidance cooldown.
+\end{equation*}
+where $t^\ast$ is in ticks. A manoeuvre is considered only if $\lVert\Delta\mathbf{p}\rVert \le 20$\,nm, $d_{\text{CPA}} \le 5$\,nm, $0 < t^\ast \le 12$ ticks, and the give-way ship is not in cooldown.
 
-\subsection{Give-Way Rule and Communication Success}
-
-The vessel with the lower identifier is the give-way (turn-to-starboard) vessel; the other stands on. A deterministic lower-id rule is a reproducible surrogate for the COLREGs crossing/head-on stand-on/give-way assignment~\cite{colregs1972,tam2010}. Crucially, the manoeuvre is executed \emph{only if the warning is successfully communicated}, with success probability the product of an environmental factor and a fatigue factor over both vessels:
-%
+The lower-id ship gives way (turn to starboard); the other stands on. This is a reproducible surrogate for COLREGs stand-on/give-way assignment~\cite{colregs1972,tam2010}. The manoeuvre runs only if the warning is delivered:
 \begin{equation}
   P_{\text{comms}} = \underbrace{\min\big(q(\mathbf{p}_a),\,q(\mathbf{p}_b)\big)}_{\text{weather / storm}}
   \cdot
-  \underbrace{\min\big(g(F_a),\,g(F_b)\big)}_{\text{fatigue, Eq.~\ref{eq:gF}}},
+  \underbrace{\min\big(g(F_a),\,g(F_b)\big)}_{\text{fatigue (Eq.~\ref{eq:gF})}},
   \label{eq:pcomms}
 \end{equation}
-%
-where $q(\mathbf{p})$ is the nominal link reliability, reduced to the storm-comms rate (as low as $0.08$ inside the storm corridor --- 92\,\% of warnings lost) when $\mathbf{p}$ lies in the storm zone. The manoeuvre proceeds iff a uniform draw is below $P_{\text{comms}}$; otherwise the give-way vessel fails to act, leaving the encounter to resolve by geometry alone. Equation~\ref{eq:pcomms} is the model's central coupling: it makes warning delivery jointly contingent on weather and human fatigue.
-
-\subsection{Avoidance Geometry and Message Exchange}
+\vspace{0.6em}
+\noindent where $q(\mathbf{p})$ is nominal link reliability, reduced to the storm-comms rate ($0.08$ inside Storm Corridor) when $\mathbf{p}$ is in the storm zone. A uniform draw below $P_{\text{comms}}$ executes the manoeuvre; otherwise geometry alone decides the encounter. Equation~\ref{eq:pcomms} is the central coupling of the model.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[>=Stealth, font=\footnotesize, scale=0.92]
-  % vessel A (give-way) heading north
-  \filldraw[blue!70!black] (0,0) circle (2.1pt);
-  \node[blue!70!black, below=1pt] at (0,0) {$a$ (give-way)};
-  \draw[->, blue!70!black, thick] (0,0) -- (0,1.7) node[left]{$\mathbf{v}_a$};
-  % vessel B (stand-on) converging from upper right
-  \filldraw[orange!85!black] (3.1,2.5) circle (2.1pt);
-  \node[orange!85!black, above=1pt] at (3.1,2.5) {$b$ (stand-on)};
-  \draw[->, orange!85!black, thick] (3.1,2.5) -- (1.9,1.55) node[right]{$\mathbf{v}_b$};
-  % relative position
-  \draw[densely dashed, gray] (0,0) -- (3.1,2.5);
-  \node[gray] at (1.85,1.5) {$\Delta\mathbf{p}$};
-  % CPA marker
-  \filldraw[red] (1.55,1.25) circle (1.6pt);
-  \node[red, right=1pt] at (1.55,1.25) {$d_{\text{CPA}}$};
-  % avoidance waypoint: L_f forward then L_o starboard
-  \draw[->, green!45!black, thick] (0,0) -- (0,1.0);
-  \draw[->, green!45!black, thick] (0,1.0) -- (1.5,1.0);
-  \filldraw[green!45!black] (1.5,1.0) circle (2.1pt);
-  \node[green!45!black, below right=0pt and 1pt] at (1.5,1.0) {$\mathbf{w}_{\text{avoid}}$};
-  \node[green!45!black] at (-0.42,0.5) {$L_f$};
-  \node[green!45!black] at (0.75,1.22) {$L_o$};
-\end{tikzpicture}
-\caption{Give-way geometry. The lower-id vessel $a$ turns to starboard toward a temporary waypoint $\mathbf{w}_{\text{avoid}}$ placed $L_f$ ahead and $L_o$ to starboard of its heading (Eq.~\ref{eq:avoidwp}), opening the closest-point-of-approach distance $d_{\text{CPA}}$ to the stand-on vessel $b$. The manoeuvre executes only if the warning is delivered (Eq.~\ref{eq:pcomms}).}
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\footnotesize,
+  lab/.style={fill=white, inner sep=1.5pt, rounded corners=1pt}]
+  \coordinate (A) at (0,0);
+  \coordinate (B) at (5.0,3.6);
+  \coordinate (Fwd) at (0,1.85);
+  \coordinate (W) at (3.0,1.85);
+  \coordinate (Cpa) at (3.35,0.55);
+
+  \draw[densely dashed, gray!55] (A) -- (B);
+  \node[lab, gray!70!black] at (2.05,2.95) {$\Delta\mathbf{p}$};
+
+  \filldraw[blue!70!black] (A) circle (2.6pt);
+  \node[lab, blue!70!black, below=5pt] at (A) {$a$ (give-way)};
+  \draw[->, blue!70!black, thick] (-0.75,0.1) -- (-0.75,1.15);
+  \node[lab, blue!70!black] at (-1.25,0.62) {$\mathbf{v}_a$};
+
+  \filldraw[orange!85!black] (B) circle (2.6pt);
+  \node[lab, orange!85!black, above=4pt] at (B) {$b$ (stand-on)};
+  \draw[->, orange!85!black, thick] (B) -- ++(-0.65,-1.0);
+  \node[lab, orange!85!black] at ($(B)+(-0.05,-1.35)$) {$\mathbf{v}_b$};
+
+  \draw[->, green!40!black, very thick] (A) -- (Fwd);
+  \node[lab, green!40!black] at (0.55,0.95) {$L_f$};
+  \draw[->, green!40!black, very thick] (Fwd) -- (W);
+  \node[lab, green!40!black] at (1.5,2.2) {$L_o$};
+  \filldraw[green!40!black] (W) circle (2.8pt);
+  \node[lab, green!40!black, right=4pt] at (W) {$\mathbf{w}_{\text{avoid}}$};
+
+  \filldraw[red!75!black] (Cpa) circle (2.4pt);
+  \node[lab, red!75!black, right=4pt] at (Cpa) {$d_{\text{CPA}}$};
+\end{tikzpicture}%
+}
+\caption{Give-way geometry. Ship $a$ steers to a temporary waypoint $\mathbf{w}_{\text{avoid}}$ placed $L_f$ ahead and $L_o$ to starboard (Eq.~\ref{eq:avoidwp}). The manoeuvre runs only if the warning is delivered (Eq.~\ref{eq:pcomms}).}
 \label{fig:cpa}
 \end{figure}
 
-A give-way vessel receives one temporary waypoint placed $L_f = 3$\,nm ahead and $L_o = 5$\,nm to starboard of its heading $\psi$ (Fig.~\ref{fig:cpa}):
-%
+A give-way ship receives one temporary waypoint $L_f = 3$\,nm ahead and $L_o = 5$\,nm to starboard of heading $\psi$ (Fig.~\ref{fig:cpa}):
 \begin{equation}
   \mathbf{w}_{\text{avoid}} = \mathbf{p} + L_f\,(\sin\psi,\ \cos\psi) + L_o\,(\cos\psi,\ -\sin\psi).
   \label{eq:avoidwp}
 \end{equation}
-%
-A three-message exchange is logged --- \texttt{CollisionWarning\{cpa,tta\}} $\to$ \texttt{GivingWay} $\to$ \texttt{MaintainingCourse}, with \texttt{ResumeRoute} once the avoidance waypoint is consumed. Each issued warning records its $t^\ast$ for the average-TTA KPI, and a 3-tick cooldown prevents manoeuvre thrashing.
+A short message log records the warning exchange. A $3$-tick cooldown prevents thrashing.
 
-\subsection{Optional Continuous-Avoidance Track (Force Field)}
-\label{sec:forcefield}
+\subsection{Optional Force-Field Track}
 
-As an optional realism layer, the discrete give-way waypoint of Eq.~\ref{eq:avoidwp} can be replaced by a continuous artificial-force-field manoeuvre in the style of Xiao et al.~\cite{xiao2013}, in which COLREGs behaviour emerges rather than being scripted. The track is a default-off configuration switch; when enabled it supersedes the CPA waypoint avoidance for that run, leaving every other subsystem unchanged. A vessel responds to a repulsive force from each nearby obstacle (vessel or shoal) within an effect distance $d_o$,
-%
-\begin{equation}
+As an optional, default-off switch, the discrete waypoint of Eq.~\ref{eq:avoidwp} can be replaced by a continuous repulsion field in the style of Xiao et al.~\cite{xiao2013}:
+\begin{equation*}
   \mathbf{F}_{\text{rep}} = \sum_{k:\,d_k < d_o} \frac{k_{\text{rep}}}{d_k^{p}}\,\hat{\mathbf{n}}_k,
-  \label{eq:forcefield}
-\end{equation}
-%
-where $d_k$ is the distance to obstacle $k$, $\hat{\mathbf{n}}_k$ the unit vector away from it, $k_{\text{rep}}$ a steepness constant, and $p$ the repulsion exponent. The resultant force's lateral (starboard) component sets a rudder angle that drives a first-order Nomoto manoeuvring response with non-dimensional indices $K' = K(L/v)$, $T' = T(v/L)$~\cite{xiao2013}; a small starboard bias resolves the symmetric dead-ahead head-on to the COLREGs ``both alter to starboard'' outcome. The crew-preparedness state scales the commanded rudder, so a fatigued crew yields weaker, later avoidance. The exponent $p$ is exposed as a tunable parameter defaulting to the inverse-square form ($p = 2$): the source sets the parameters of Eq.~\ref{eq:forcefield} by coarse optimisation and states their AIS calibration is still in development, so no single value is pinned by it. Xiao's calibrated effect distances are micro-scale---$d_o \sim \mathcal{N}(1548,\,706^2)$\,m for head-on and $\mathcal{N}(384,\,358^2)$\,m for overtaking encounters---for a sub-$10$\,km waterway stepped each second; at this model's basin scale and $15$-minute tick they fall below a single step, so the magnitudes are rescaled to operationally useful reaches while preserving the source's $\approx\!4{:}1$ head-on-to-overtaking ratio.
+\end{equation*}
+with exponent $p=2$ by default. Source effect distances are micro-scale relative to a $15$-minute basin tick, so magnitudes are rescaled while keeping the reported head-on to overtaking ratio. All definitive experiments keep this track off.
 
 % ==================================================================
-\section{Collision Consequence Model (SIMCOL)}
+\section{Collision Consequence (SIMCOL)}
 \label{sec:consequence}
 % ==================================================================
 
-A \textbf{hard collision} is logged when two \textsc{Active} vessels close within $d_{\text{hit}} = 2\,r_{\text{coll}} = 0.10$\,nm (${\approx}185$\,m, roughly a ship-length sum), counted once per encounter --- on the tick the pair \emph{enters} contact, not every tick it remains overlapping. Encounters within $1$\,nm of any port are treated as VTS-controlled harbour manoeuvring and are not counted as collisions. The consequence of a hard collision is evaluated with the DTU SIMCOL probabilistic damage and survivability model~\cite{lutzen2001}, which replaces an ad-hoc casualty rule with collision mechanics.
+A \textbf{hard collision} is logged when two \textsc{Active} ships close within $0.10$\,nm (${\approx}185$\,m), once per encounter (rising edge). Contacts within $1$\,nm of a port are ignored as harbour manoeuvring under vessel traffic services (VTS)\wikifn{Vessel_traffic_service}. Damage uses DTU SIMCOL (ship collision damage / survivability)~\cite{lutzen2001}.
 
-\textbf{External dynamics.} The energy released for hull deformation is the loss of kinetic energy of the rigid-body system between first contact and the common-velocity state, evaluated with the closed-form external-dynamics solution of Pedersen and Zhang~\cite{pedersenzhang1998} as used by Lützen~\cite{lutzen2001,pedersen1995}. Only the component of the closing velocity \emph{normal} to the struck vessel's side performs side-penetrating work, so for struck and striking displacements $M_a$, $M_b$ the absorbed energy is the reduced-mass energy on that normal component,
-%
+Absorbed energy follows Pedersen and Zhang~\cite{pedersenzhang1998,lutzen2001} on the normal closing component:
 \begin{equation}
   E_{\text{abs}} = \tfrac12\,\frac{M_a'\,M_b'}{M_a' + M_b'}\,V_n^2,
   \qquad
   V_n = \big|(\mathbf{v}_b - \mathbf{v}_a)\cdot\hat{\mathbf{n}}\big|,
   \label{eq:eabs}
 \end{equation}
-%
-where $\hat{\mathbf{n}}$ is the unit normal to the struck side and $M_a' = M_a(1+m_{\text{sway}})$, $M_b' = M_b(1+m_{\text{surge}})$ carry hydrodynamic added mass with sway coefficient $m_{\text{sway}} = 0.85$ and surge coefficient $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. The normal-velocity projection $V_n$ supplies the collision-angle dependence directly --- a near-parallel graze releases almost no energy while a perpendicular impact releases the maximum --- so Eq.~\ref{eq:eabs} reduces to the classical right-angle reduced-mass form when $\hat{\mathbf{n}}$ aligns with the closing velocity, and no separate oblique-reduction factor is required.
-
-\textbf{Internal mechanics.} The absorbed energy is related to damage extent through Minorsky's absorbed-energy/resistance-volume correlation~\cite{minorsky1959}, $E_{\text{abs}}\,[\text{MJ}] = 47.2\,R_T + 32.7$, where $R_T$ is the resistance (destroyed) volume of deformed structural material. Lützen casts the resulting damage as \emph{non-dimensional} distributions --- the damage length $\ell/L_{pp}$ (longitudinal extent normalised by struck-ship length) and the penetration $t/B$ (transverse extent normalised by breadth), each fitted to striking-ship displacement, speed, and collision angle~\cite{lutzen2001}. Taking a representative damage length $\ell = 0.12\,L_{pp}$ (the median of that distribution) and an effective smeared side-steel thickness $\tau = 0.08$\,m, the breach penetration is $t = R_T/(\ell\,\tau)$, expressed non-dimensionally as $t/B$.
-
-\textbf{Survivability.} Because the engine does not carry per-ship residual-stability curves, the survivability factor $S_i \in [0,1]$ --- the conditional probability that the struck vessel survives the flooding case --- is modelled as a SOLAS~II-1-shaped surrogate~\cite{solas2020} on the relative penetration:
-%
+with added-mass factors $m_{\text{sway}} = 0.85$ and $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. Minorsky's correlation~\cite{minorsky1959} links energy to damaged volume. Relative penetration $t/B$ drives a survival factor shaped like SOLAS Chapter~II-1 probabilistic damage stability~\cite{solas2020}\wikifn{International_Convention_for_the_Safety_of_Life_at_Sea}:
 \begin{equation}
   S_i =
   \begin{cases}
@@ -380,328 +341,339 @@ where $\hat{\mathbf{n}}$ is the unit normal to the struck side and $M_a' = M_a(1
   \end{cases}
   \label{eq:sfactor}
 \end{equation}
-%
-with knee $r_0 = 0.10$, full-loss penetration $r_1 = 0.30$, and the $0.25$ exponent of the SOLAS~II-1 $s$-factor. The expected number of crew thrown into the water (man-overboard) per collision is then
-%
+with $r_0 = 0.10$, $r_1 = 0.30$. This is an accepted surrogate: the engine does not carry per-ship residual-stability curves. Expected overboard count is
 \begin{equation}
   \mathbb{E}[\text{overboard}] = n_b\,\big(1 - S_i\big),
   \label{eq:overboard}
 \end{equation}
-%
-with $n_b$ the struck-ship crew. Each crew member is an independent Bernoulli trial with overboard probability $1 - S_i$, and each colliding vessel is evaluated independently as the struck ship. This draw does \emph{not} kill directly: it determines how many crew enter the water, whose fate is decided by the search-and-rescue chain (Section~\ref{sec:sar}). The consequence then follows one of two parallel casualty paths. A vessel whose survival factor falls below the founder threshold $S^{\dagger} = 0.50$ founders, evacuating its \emph{whole} crew to a liferaft (the \textsc{Evac} chain); a struck vessel that stays afloat instead casts only its $\mathbb{E}[\text{overboard}]$ casualties into the water as individual persons-in-water for the man-overboard search (Section~\ref{sec:mob}). A fatality therefore arises only when a person in the water is not recovered within the survival window; $S_i \to 1$ is logged as a near-miss damage event. % TODO-VERIFY surrogate knee r_0, full-loss r_1 and founder threshold S-dagger are calibration values shaped to the SOLAS II-1 s-factor, not constants extracted from a source.
+drawn as independent Bernoulli trials. If $S_i < S^{\dagger} = 0.50$, the struck ship founders and the whole crew enters the liferaft (\textsc{Evac}). If it stays afloat, only the overboard draw enters the man-overboard chain (Section~\ref{sec:mob}).
 
-\textbf{Encounter geometry.} Every logged collision is additionally classified by its encounter geometry, taken from the angle between the two vessels' headings folded onto $[0^\circ,180^\circ]$, $\theta = \min(|\psi_a - \psi_b|,\,360^\circ - |\psi_a - \psi_b|)$:
-%
-\begin{equation}
+Encounter type is diagnostic, from the folded heading angle $\theta$:
+\begin{equation*}
   \text{type} =
   \begin{cases}
     \text{side-to-side (overtaking)}, & \theta < 45^\circ\\
     \text{front-to-side (crossing)},  & 45^\circ \le \theta < 135^\circ\\
     \text{head-on}, & \theta \ge 135^\circ.
   \end{cases}
-  \label{eq:colltype}
-\end{equation}
-%
-Per-type counts are accumulated as diagnostic KPIs (Section~\ref{sec:experiment}). The classification is consistent with the consequence chain: near-parallel side-to-side hits have $\hat{\mathbf{n}}$ nearly orthogonal to the closing velocity, so $V_n \to 0$ in Eq.~\ref{eq:eabs} and they release little energy, whereas head-on and crossing encounters carry the large normal closing speed that drives deep penetration and foundering.
+\end{equation*}
+Near-parallel hits release little energy in Eq.~\ref{eq:eabs}; head-on and crossing hits drive deeper penetration.
 
 % ==================================================================
-\section{External Collision-Frequency Validation (IWRAP)}
-\label{sec:iwrap}
-% ==================================================================
-
-The internal KPIs (Section~\ref{sec:experiment}) measure relative differences between methods but are not, by themselves, regulator-grade frequencies. To anchor the model to accepted practice, each run's vessel tracks are exported as synthetic AIS and analysed offline with the IWRAP Mk II model~\cite{friishansen2008iwrap}. The expected number of collisions on a waterway is the product of a geometric candidate count and a causation probability~\cite{lusic2015,friishansen2008iwrap}:
-%
-\begin{equation}
-  N_c = N_a\,P_c.
-  \label{eq:iwrap}
-\end{equation}
-%
-For two opposing flows of classes $i,j$ over a leg of sailing distance $D$ and fairway width $W$ during time $t$, the head-on candidate count is
-%
-\begin{equation}
-  N_a^{\text{head}} = \frac{D\,t}{W}\sum_{i,j} Q_i^{(1)} Q_j^{(2)}\,
-  \frac{(B_i^{(1)}+B_j^{(2)})\,(V_i^{(1)}+V_j^{(2)})}{V_i^{(1)}\,V_j^{(2)}},
-  \label{eq:nahead}
-\end{equation}
-%
-with traffic flows $Q$, beams $B$, speeds $V$; the overtaking form replaces $(V_i+V_j)$ with $|V_i - V_j|$. For crossing waterways meeting at angle $\Theta \in (10^\circ,170^\circ)$,
-%
-\begin{equation}
-  N_a^{\text{cross}} = \sum_{i,j} Q_i^{(1)} Q_j^{(2)}\,
-  \frac{D_{ij}\,V_{ij}}{V_i^{(1)}\,V_j^{(2)}}\,\frac{1}{\sin\Theta},
-  \label{eq:nacross}
-\end{equation}
-%
-where $V_{ij} = \sqrt{(V_i^{(1)})^2 + (V_j^{(2)})^2 - 2 V_i^{(1)} V_j^{(2)}\cos\Theta}$ is the relative speed and $D_{ij}$ the Pedersen collision diameter~\cite{friishansen2008iwrap,pedersen1995}. The causation probabilities are the IWRAP software defaults~\cite{friishansen2008iwrap,lusic2015}: $P_c^{\text{head-on}} = 0.50\times10^{-4}$, $P_c^{\text{overtaking}} = 1.10\times10^{-4}$, and $P_c^{\text{crossing}} = 1.30\times10^{-4}$. An offline analyzer builds the leg network from the hand-authored routes, derives per-leg flows from the fleet and traversal times, and sums the head-on, overtaking, and crossing contributions into a per-year $N_c$. For the present network this yields $N_c \approx 0.01$ collisions/yr, within the regulator acceptance of ${<}1$ collision/yr/fairway; comparing $N_c$ between Baseline~A and the Proposed System (whose weather-aware slow-down lowers traffic flow) provides an externally interpretable, regulator-aligned check that the fatigue-coupling mechanism produces frequency reductions of the expected order.
-
-% ==================================================================
-\section{Search-and-Rescue Subsystem}
+\section{Search and Rescue}
 \label{sec:sar}
 % ==================================================================
 
-When a collision founders a vessel (Eq.~\ref{eq:sfactor}, $S_i < S^{\dagger}$) or a grounding forces an evacuation, the survivors enter a liferaft and the search-and-rescue (SAR) chain is triggered. A rescue agent is dispatched from the nearest shore base (a port) after a mobilisation delay $\Delta t_{\text{mob}} = 2$ ticks --- a helicopter ($80$\,kn) when the datum lies beyond $40$\,nm offshore, otherwise a patrol vessel ($25$\,kn)~\cite{imosar2018}. The asset then progresses through mobilise, transit, search, and embark phases; the subsystem layers two accredited components onto this transit. A second, parallel SAR chain handles the persons cast overboard from struck vessels that stay afloat (Eq.~\ref{eq:overboard}); it shares the same drift and random-search detection model but resolves each casualty individually (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the resulting vessel state machine.
+Foundering ($S_i < S^{\dagger}$) starts the liferaft chain, following International Aeronautical and Maritime Search and Rescue (IAMSAR) Manual practice~\cite{imosar2018}\wikifn{International_Aeronautical_and_Maritime_Search_and_Rescue_Manual}. A rescue asset leaves the nearest port after a mobilisation delay of $2$ ticks by default: helicopter ($80$\,kn) beyond $40$\,nm offshore, otherwise patrol ($25$\,kn). A second chain handles persons overboard from afloat ships (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the vessel state machine. Grounding only reverts position; it does not force evacuation.
 
 \begin{figure}[t]
 \centering
 \resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[>=Stealth, font=\footnotesize,
-  st/.style={draw, rounded corners=4pt, minimum width=1.45cm,
-             minimum height=0.72cm, align=center, inner sep=2pt}]
-  \node[st, fill=gray!15]   (D) at (0,0)      {DOCKED};
-  \node[st, fill=green!12]  (A) at (2.6,0)    {ACTIVE};
-  \node[st, fill=yellow!22] (E) at (5.4,0)    {EVAC\\(liferaft)};
-  \node[st, fill=blue!12]   (R) at (7.9,1.0)  {RESCUED};
-  \node[st, fill=red!15]    (L) at (7.9,-1.0) {LOST};
+  st/.style={draw, rounded corners=3pt, minimum width=1.55cm,
+             minimum height=0.7cm, align=center, inner sep=2pt},
+  lab/.style={fill=white, inner sep=1.2pt, font=\scriptsize}]
+  \node[st, fill=gray!15]   (D) at (0,1.5)   {DOCKED};
+  \node[st, fill=green!12]  (A) at (0,0)     {ACTIVE};
+  \node[st, fill=yellow!22] (E) at (3.2,0)   {EVAC\\(liferaft)};
+  \node[st, fill=blue!12]   (R) at (6.1,1.1) {RESCUED};
+  \node[st, fill=red!15]    (L) at (6.1,-1.1){LOST};
 
-  \draw[->] (A) to[bend right=22] node[below, font=\scriptsize]{port, dwell} (D);
-  \draw[->] (D) to[bend right=22] node[above, font=\scriptsize]{depart} (A);
-  \draw[->] (A) -- node[above, font=\scriptsize]{collision /} node[below, font=\scriptsize]{grounding} (E);
-  \draw[->] (E) -- node[above left=-2pt, font=\scriptsize]{located} (R);
-  \draw[->] (E) -- node[below left=-2pt, font=\scriptsize]{not in time} (L);
-  \draw[->, dashed, gray] (R) to[out=0, in=70] (3.2,2.0) to[out=250, in=80] (A.north);
-  \draw[->, dashed, gray] (L) to[out=0, in=-70] (3.2,-2.0) to[out=110, in=-80] (A.south);
-  \node[gray, font=\scriptsize] at (4.9,2.0) {respawn};
+  \draw[->] (D) -- node[lab, right]{depart} (A);
+  \draw[->] (A) to[bend left=48] node[lab, left]{port, dwell} (D);
+  \draw[->] (A) -- node[lab, above]{founder} (E);
+  \draw[->] (E) -- node[lab, above]{located} (R);
+  \draw[->] (E) -- node[lab, below]{not in time} (L);
+
+  \draw[->, dashed, gray!70!black] (R.east) -- ++(0.9,0)
+    node[lab, gray!70!black, right]{respawn};
+  \draw[->, dashed, gray!70!black] (L.east) -- ++(0.9,0)
+    node[lab, gray!70!black, right]{respawn};
 \end{tikzpicture}%
 }
-\caption{Vessel state machine. A vessel cycles \textsc{Active}\,$\leftrightarrow$\,\textsc{Docked} along its route; a foundering collision or grounding sends it to \textsc{Evac} (liferaft), from which the SAR chain yields \textsc{Rescued} (search detection, Eq.~\ref{eq:cdp}) or \textsc{Lost} (the survivors are not located before the liferaft survival window elapses). Terminal vessels respawn to maintain fleet size.}
+\caption{Vessel state machine. Foundering collision $\to$ \textsc{Evac}; SAR yields \textsc{Rescued} (Eq.~\ref{eq:cdp}) or \textsc{Lost}. Terminal ships respawn to keep fleet size. KPI fatalities count only unrecovered persons-in-water (Section~\ref{sec:mob}).}
 \label{fig:fsm}
 \end{figure}
 
-\subsection{Drift and Random-Search Detection (MASSIM)}
+\subsection{Drift and Detection (MASSIM)}
 
-Because the exact distress position is uncertain and the liferaft drifts, detection is modelled with the Koopman random-search formulation used in the MASSIM maritime-search model~\cite{karatas2018,koopman1980}. A searcher of sweep width $w$ moving at speed $v_s$ over a search area $A$ has instantaneous detection rate $\gamma(t) = w\,v_s / A$. The cumulative detection probability for $n$ searchers over elapsed search time $\tau$ is
-%
+Detection follows the Koopman random-search model used in the MASSIM maritime-search simulation~\cite{karatas2018,koopman1980}. With sweep width $w$, search speed $v_s$, and area $A$,
 \begin{equation}
-  \text{CDP} = 1 - \exp\Big(-\,\frac{n\,w\,v_s\,\tau}{A}\Big) = 1 - e^{-C},
+  \text{CDP} = 1 - \exp\Big(-\,\frac{n\,w\,v_s\,\tau}{A}\Big) = 1 - e^{-C}.
   \label{eq:cdp}
 \end{equation}
-%
-where $C = n\,w\,v_s\,\tau / A$ is the search coverage factor and $v_s$ the asset's (season-degraded, Section~\ref{sec:sar-ashrafi}) on-scene speed. The search area expands as the datum drifts: with an initial uncertainty radius $r_0$ and drift speed $u_d$, the area grows as $A(\tau) = \pi\,(r_0 + u_d\,\tau)^2$, so detection becomes harder the longer the response is delayed --- the quantitative link from response latency to survival. Each on-scene tick advects the liferaft datum along the prevailing current and draws a Bernoulli detection at the per-tick coverage $1 - e^{-\mathrm{d}C}$~\cite{karatas2018}.
+Search area grows as $A(\tau) = \pi\,(r_0 + u_d\,\tau)^2$ with initial radius $r_0$ and drift $u_d$. Each on-scene tick draws Bernoulli detection at coverage $1 - e^{-\mathrm{d}C}$.
 
-\subsection{Environmental Degradation (Ashrafi)}
+\subsection{Seasonal Degradation (Ashrafi)}
 \label{sec:sar-ashrafi}
 
-Rescue-asset performance degrades with season following the Arctic SAR framework of Ashrafi et al.~\cite{ashrafi2024}, in which air temperature, wind speed, significant wave height, and a wind-chill index combine into a per-month severity. The wind-chill index uses the standard form
-%
-\begin{equation}
-  \text{wci} = 13.12 + 0.6215\,T - 11.37\,U^{0.16} + 0.3965\,T\,U^{0.16},
-  \label{eq:wci}
-\end{equation}
-%
-with air temperature $T$ ($^\circ$C) and wind speed $U$ (km/h). Rather than re-deriving the expert-assigned metocean thresholds, we adopt the framework's published month-group aggregation: each calendar month maps to one of four severity groups --- A (May--August, mildest), B (April, September), C (March, October, November), and D (January, February, December, harshest)~\cite{ashrafi2024}. The group multiplicatively reduces the asset's transit and search speed --- helicopter $1.00/0.95/0.77/0.60$ and patrol vessel $1.00/0.80/0.40/0.21$ for groups A--D, relative to the mildest group --- and sets the per-survivor boarding time ($2.1$--$10.7$\,min by helicopter, $6.1$--$31.2$\,min by vessel)~\cite{ashrafi2024}. On location, the asset embarks the $n_b$ survivors at this season-degraded rate before the case is logged \textsc{Rescued}. Transit, search (Eq.~\ref{eq:cdp}), and boarding therefore all lengthen in winter, so --- reproducing the source case study --- the longest rescue times occur December--February and the shortest May--August~\cite{ashrafi2024}.
+Asset performance follows Ashrafi et al.~\cite{ashrafi2024}. Wind-chill uses
+\begin{equation*}
+  \text{wci} = 13.12 + 0.6215\,T - 11.37\,U^{0.16} + 0.3965\,T\,U^{0.16}.
+\end{equation*}
+Months map to severity groups A--D (May--August mildest; Dec--Feb harshest). Relative transit/search speeds are approximately $1.00/0.95/0.77/0.60$ (helicopter) and $1.00/0.80/0.40/0.21$ (patrol); boarding times lengthen with severity~\cite{ashrafi2024}. Default simulation month is July (group~A).
 
 \subsection{Man-Overboard Search}
 \label{sec:mob}
 
-The casualties cast into the water by a struck-but-afloat vessel (Eq.~\ref{eq:overboard}) are handled as an explicit person-in-water search (Fig.~\ref{fig:mob}), following the man-overboard simulation of Karatas et al.~\cite{karatas2018}. Each collision spawns an \emph{incident}: its $\mathbb{E}[\text{overboard}]$ casualties become individual persons-in-water, scattered about the collision point and each assigned an independent drift bearing, so a search may recover some of an incident's people before others. One searcher --- selected and dispatched by the same nearest-base, helicopter-versus-patrol rule as the liferaft chain --- is tasked per incident and homes on the cluster centroid. While on scene it draws the Koopman per-tick detection of Eq.~\ref{eq:cdp} \emph{independently for every person}, recovering each as it is located. A person not recovered before the cold-water survival window $\tau_{\text{mob}} = 12$ ticks ($\approx 3$\,h) elapses is lost; this is the model's only path to a crew fatality. The window is far shorter than the $96$-tick liferaft endurance, reflecting unprotected immersion, and shrinks the effective margin in winter through the same Ashrafi speed degradation that slows the searcher (Section~\ref{sec:sar-ashrafi}). The two SAR chains thus differ only in granularity: the liferaft recovers a vessel's crew as one whole-group case, the man-overboard search resolves individuals.
+Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-water, each with its own drift bearing (Fig.~\ref{fig:mob}), following Karatas et al.~\cite{karatas2018}. One searcher homes on the cluster centroid and applies Eq.~\ref{eq:cdp} independently per person. Anyone not recovered within $\tau_{\text{mob}} = 12$ ticks (${\approx}3$\,h) is lost. \textbf{This is the only path that increments the fatal KPI.} Liferaft \textsc{Lost} is logged but does not add to \texttt{fatal\_per\_1k\_hrs}. Liferaft endurance is $96$ ticks ($24$\,h).
 
 \begin{figure}[t]
 \centering
-\resizebox{\columnwidth}{!}{%
-\begin{tikzpicture}[>=Stealth, font=\footnotesize,
-  base/.style={draw, rounded corners=3pt, fill=gray!15, minimum width=1.2cm,
-               minimum height=0.7cm, align=center, inner sep=2pt},
-  asset/.style={draw, rounded corners=3pt, fill=orange!22, align=center, inner sep=3pt},
+\begin{minipage}{\columnwidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize,
+  lab/.style={fill=white, inner sep=1pt},
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=3pt},
   piw/.style={circle, draw=red!60!black, fill=red!35, minimum size=5pt, inner sep=0pt},
   rec/.style={circle, draw=green!55!black, fill=green!40, minimum size=5pt, inner sep=0pt},
-  lost/.style={circle, draw=gray!70, fill=gray!30, minimum size=5pt, inner sep=0pt},
-  drift/.style={->, red!55!black, semithick, shorten >=1pt},
+  lost/.style={circle, draw=gray!65, fill=gray!28, minimum size=5pt, inner sep=0pt},
 ]
-  % shore base + searcher transit
-  \node[base] (port) at (0,0) {shore\\base};
-  \node[asset] (s) at (2.5,1.0) {searcher\\(helo / patrol)};
-  \draw[->, dashed] (port.north east) to[bend left=14]
-        node[below right=-2pt, font=\scriptsize]{transit} (s.west);
+  \node[box, fill=gray!15] (port) at (0,0) {shore base};
+  \node[box, fill=orange!22] (s) at (2.9,0) {searcher\\(helo / patrol)};
+  \draw[->, dashed] (port) -- node[lab, above]{transit} (s);
 
-  % drifting search area
-  \draw[dashed, blue!55] (5.9,0.2) circle (1.75);
-  \node[blue!55, font=\scriptsize, align=center] at (5.9,2.35)
-        {search area $A(\tau)=\pi(r_0+u_d\tau)^2$};
+  \coordinate (C) at (6.3,0);
+  \draw[dashed, blue!55] (C) circle (1.3);
+  \node[lab, text=blue!55!black, align=center] at ($(C)+(0,1.75)$)
+        {$A(\tau)=\pi(r_0+u_d\tau)^2$};
 
-  % collision incident (star) + label
-  \node[star, star points=5, star point ratio=2.1, draw=black, fill=yellow!75,
-        minimum size=11pt, inner sep=0pt] (inc) at (5.9,0.2) {};
-  \node[font=\scriptsize] at (5.9,-1.55) {collision incident};
-  \draw[->, dashed] (s.east) to[bend left=10] (inc.north west);
+  \node[star, star points=5, star point ratio=2.05, draw=black, fill=yellow!75,
+        minimum size=9pt, inner sep=0pt] (inc) at (C) {};
+  \node[lab] at ($(C)+(0,-1.7)$) {collision incident};
 
-  % persons in water, each with an independent drift bearing
-  \node[piw]  (p1) at (5.0,0.95) {}; \draw[drift] (p1) -- ++(-0.55,0.40);
-  \node[piw]  (p2) at (6.9,0.85) {}; \draw[drift] (p2) -- ++(0.50,0.30);
-  \node[rec]  (p3) at (6.5,-0.55){}; \draw[drift] (p3) -- ++(0.45,-0.35);
-  \node[lost] (p4) at (5.0,-0.6) {}; \draw[drift] (p4) -- ++(-0.50,-0.30);
+  \draw[->, dashed] (s) -- (inc);
 
-  % legend
-  \node[piw,  label={[font=\scriptsize]right:person in water (drifting)}] at (8.9,1.05) {};
-  \node[rec,  label={[font=\scriptsize]right:recovered (located, Eq.~\ref{eq:cdp})}] at (8.9,0.30) {};
-  \node[lost, label={[font=\scriptsize]right:lost ($\tau>\tau_{\text{mob}}$, drowned)}] at (8.9,-0.45) {};
-\end{tikzpicture}%
-}
-\caption{Man-overboard search. A collision spawns one \emph{incident} whose casualties (Eq.~\ref{eq:overboard}) become individual persons-in-water, each scattered about the impact point and advected along its own drift bearing (red arrows). A single searcher --- chosen by the same nearest-base, helicopter-versus-patrol rule as the liferaft chain --- transits from a shore base and homes on the cluster centroid, then draws the Koopman detection (Eq.~\ref{eq:cdp}) \emph{independently per person} over the drift-growing search area, so individuals are recovered (green) as they are located. Anyone not reached before the cold-water survival window $\tau_{\text{mob}}$ elapses is lost (grey). Unlike the whole-group liferaft case of Fig.~\ref{fig:fsm}, each casualty resolves separately.}
+  \node[piw] (p1) at ($(C)+(-0.52,0.42)$) {};
+  \draw[->, red!55!black, thin] (p1) -- ++(-0.32,0.20);
+  \node[piw] (p2) at ($(C)+(0.55,0.38)$) {};
+  \draw[->, red!55!black, thin] (p2) -- ++(0.32,0.18);
+  \node[rec] (p3) at ($(C)+(0.50,-0.42)$) {};
+  \draw[->, red!55!black, thin] (p3) -- ++(0.30,-0.20);
+  \node[lost] (p4) at ($(C)+(-0.52,-0.40)$) {};
+  \draw[->, red!55!black, thin] (p4) -- ++(-0.30,-0.18);
+\end{tikzpicture}
+
+\vspace{0.35em}
+{\scriptsize
+\begin{tikzpicture}[baseline=(n1.base),
+  piw/.style={circle, draw=red!60!black, fill=red!35, minimum size=5pt, inner sep=0pt},
+  rec/.style={circle, draw=green!55!black, fill=green!40, minimum size=5pt, inner sep=0pt},
+  lost/.style={circle, draw=gray!65, fill=gray!28, minimum size=5pt, inner sep=0pt}]
+  \node[piw] (n1) {};
+  \node[anchor=west] at (0.22,0) {drifting};
+  \node[rec] at (1.85,0) {};
+  \node[anchor=west] at (2.07,0) {recovered (Eq.~\ref{eq:cdp})};
+  \node[lost] at (4.85,0) {};
+  \node[anchor=west] at (5.07,0) {lost ($\tau>\tau_{\text{mob}}$)};
+\end{tikzpicture}}
+\end{minipage}
+\caption{Man-overboard search. Casualties (Eq.~\ref{eq:overboard}) drift separately; one searcher applies Eq.~\ref{eq:cdp} per person. Unrecovered people within $\tau_{\text{mob}}$ are the fatal KPI events.}
 \label{fig:mob}
 \end{figure}
+
+% ==================================================================
+\section{External Collision-Frequency Check (IWRAP)}
+\label{sec:iwrap}
+% ==================================================================
+
+Internal KPIs compare methods. To place traffic intensity on a known scale, the committed route network is analysed with IALA's IWRAP Mk~II waterway risk model~\cite{friishansen2008iwrap,lusic2015}\wikifn{International_Association_of_Marine_Aids_to_Navigation_and_Lighthouse_Authorities}:
+\begin{equation*}
+  N_c = N_a\,P_c.
+\end{equation*}
+Head-on, overtaking, and crossing candidate counts follow the usual IWRAP forms (flows $Q$, beams $B$, speeds $V$, Pedersen diameter for crossings~\cite{friishansen2008iwrap,pedersen1995}). Causation probabilities are the IWRAP defaults: $P_c^{\text{head-on}} = 0.50\times10^{-4}$, $P_c^{\text{overtaking}} = 1.10\times10^{-4}$, $P_c^{\text{crossing}} = 1.30\times10^{-4}$.
+
+Each batch row stamps $N_c$ from the static synthesised routes, the scenario fleet size, and a method speed scale (weather-aware methods slow traffic). We do not export per-run AIS tracks. For the present network, $N_c$ is on the order of $0.01$ collisions/yr, inside the usual ${<}1$/yr/fairway acceptance band.
+
+\FloatBarrier
 
 % ==================================================================
 \section{Experimental Design}
 \label{sec:experiment}
 % ==================================================================
 
-\subsection{Methods Under Test}
+\subsection{Methods and Scenarios}
 
-The three conditions of Section~\ref{sec:goal} are realised as configuration switches over one agent codebase:
-\begin{itemize}[leftmargin=1.2em, itemsep=2pt]
-    \item \textbf{Baseline~A (Classical):} weather-unaware; nominal fair-weather VHF but the same environmental storm-comms degradation as every method (no privileged radio); no weather-induced slowdown; unmanaged fatigue ($m=1.00$); collision-consequence multiplier highest.
-    \item \textbf{Baseline~B (Shore Rest Alerts):} weather-aware slowdown (Section~\ref{sec:speed}); reduced fatigue build-rate ($m=0.82$); weather/storm-gated comms.
-    \item \textbf{Proposed System:} smart watch scheduling ($m=0.65$) plus all Baseline~B mitigations.
+The three methods of Section~\ref{sec:goal} differ as follows:
+
+\begin{itemize}
+    \item \textbf{Baseline~A:} no weather-aware slowdown ($\text{storm speed factor}=1$); unmanaged fatigue ($m=1.00$).
+    \item \textbf{Baseline~B:} hazard and storm slowdowns; $m=0.82$.
+    \item \textbf{Proposed:} same slowdowns as B; $m=0.65$.
 \end{itemize}
+SIMCOL parameters are identical across methods. Storm-zone radio loss applies to all methods. Table~\ref{tab:scenarios} lists the four scenarios. Each condition uses $30$ seeds and $2880$ ticks ($4 \times 3 \times 30 = 360$ runs).
 
-\subsection{Scenarios}
-
-Table~\ref{tab:scenarios} summarises the four scenarios; each runs 30 independent seeds for $2880$ ticks (30 days). With three methods and four scenarios, the full plan executes $4 \times 3 \times 30 = 360$ runs, dispatched in parallel.
-
-\begin{table}[htbp]
-    \caption{Scenario summary. All scenarios use 30 seeds and 2880 ticks/run (30 days at 15\,min/tick).}
+\begin{table*}[t]
+    \caption{Scenario summary ($30$ seeds, $2880$ ticks/run).}
     \label{tab:scenarios}
     \centering
     \small
-    \begin{tabularx}{\columnwidth}{@{}l>{\raggedright\arraybackslash}Xcc@{}}
+    \begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}Xcc@{}}
         \toprule
         Scenario & Key conditions & Ships & Hyp. \\
         \midrule
-        1 --- Calm Passage &
-        calm-biased weather; nominal comms. Calibration target ${<}0.5$ collisions / 1\,k ship-hrs. &
-        20 & Calib. \\[4pt]
-        2 --- Storm Corridor &
-        moving storm zone; comms rate as low as 0.08 inside. &
-        25 & H1, H3 \\[4pt]
-        3 --- Blind Shore &
-        degraded coordination away from dense lanes: fleet-wide comms reliability $0.55$ and a reduced avoidance berth. &
-        25 & H1 \\[4pt]
-        4 --- Deep Water Rescue &
-        sparse fleet far offshore: slowed SAR assets ($55/16$\,kn) and longer mobilisation lengthen every rescue transit, stressing the SAR chain. &
+        Calm Passage &
+        Calm weather; calibration reference (target band ${\approx}0.5$--$1.5$ collisions / $1$\,k ship-hrs under Baseline~A). &
+        20 & Calib. \\
+        Storm Corridor &
+        Moving storm; storm-comms rate $0.08$; non-A speed factor $0.45$. &
+        25 & H1, H3 \\
+        Blind Shore &
+        Fleet-wide comms $0.55$; tighter avoidance berth ($L_o=3$\,nm). &
+        25 & H1 \\
+        Deep Water Rescue &
+        Sparse fleet; SAR mobilisation $4$ ticks; helo/patrol $55/16$\,kn. &
         15 & H2 \\
         \bottomrule
     \end{tabularx}
-\end{table}
+\end{table*}
 
 \subsection{Key Performance Indicators}
 
-Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours accumulate $0.25$\,h per \textsc{Active} vessel per tick. A \emph{fatality} is now an emergent outcome rather than an instantaneous draw: it is a person cast overboard (Eq.~\ref{eq:overboard}) or a liferaft occupant who is not recovered before their survival window elapses, so \texttt{fatal\_per\_1k\_hrs} and \texttt{survival\_ratio} measure the joint performance of the consequence and search-and-rescue chains.
+Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours add $0.25$\,h per \textsc{Active} ship per tick. A \emph{fatality} in the KPIs is an unrecovered person-in-water (Section~\ref{sec:mob}).
 
-\begin{table}[htbp]
+\begin{table*}[t]
     \caption{KPI definitions and hypothesis links.}
     \label{tab:kpis}
     \centering
     \small
-    \begin{tabularx}{\columnwidth}{@{}clXc@{}}
+    \begin{tabularx}{\textwidth}{@{}clXc@{}}
         \toprule
         \# & KPI & Definition & Hyp. \\
         \midrule
         1 & \texttt{fatal\_per\_1k\_hrs}
         & Fatalities $\div$ ship-hrs $\times 10^3$
-        & H1 \\
+        & H1, H3 \\
         2 & \texttt{collision\_per\_1k\_hrs}
         & Collisions $\div$ ship-hrs $\times 10^3$
-        & H1 \\
+        & Calib. \\
         3 & \texttt{evac\_activation\_rate}
         & Evac activations $\div$ ship-hrs $\times 10^3$
-        & H1 \\
+        & --- \\
         4 & \texttt{survival\_ratio}
         & $1 -$ fatalities\,/\,crew exposed in collisions
         & H2 \\
         5 & \texttt{avg\_tta\_hours}
-        & Mean rescue Time-to-Arrival across dispatches
+        & Mean rescue time-to-arrival
         & H2 \\
         6 & \texttt{mean\_p\_prep}
-        & Time-averaged crew preparedness across vessels
-        & H1, H3 \\
+        & Time-averaged crew preparedness
+        & mech. \\
         \bottomrule
     \end{tabularx}
-\end{table}
+\end{table*}
 
-Alongside the six hypothesis KPIs, the engine accumulates \emph{diagnostic} telemetry counters that characterise the incident mix without entering the statistical battery: the collision-type breakdown (head-on, front-to-side, side-to-side counts from Eq.~\ref{eq:colltype}) and the man-overboard tallies (persons overboard, recovered, and lost). These are surfaced live on the dashboard and in the per-run snapshot to explain \emph{why} a given fatality or survival figure arose --- for instance, distinguishing a benign run dominated by low-energy overtaking contacts from one with foundering head-on impacts.
-
-Crew preparedness (KPI~6) is accumulated each tick for every \textsc{Active} vessel as the product of a weather-readiness and a fatigue-readiness term, with method awareness factor $\alpha_M \in \{2.0\,(\text{A}),\,1.3\,(\text{B}),\,1.0\,(\text{Proposed})\}$:
-%
-\begin{equation}
+Crew preparedness uses method awareness $\alpha_M \in \{2.0\,(\text{A}),\,1.3\,(\text{B}),\,1.0\,(\text{Proposed})\}$:
+\begin{equation*}
   P_{\text{prep}} = \max(0,\,1 - \alpha_M W)\cdot\max(0,\,1 - 0.70\,F).
-  \label{eq:pprep}
-\end{equation}
+\end{equation*}
+Diagnostic counters (collision-type mix, MOB tallies) are logged but not entered into the Holm battery.
 
 \subsection{Statistical Analysis}
 
-For every (KPI $\times$ scenario $\times$ method-pair), the two methods are compared with a two-tailed Mann--Whitney U test (average-rank tie handling, normal approximation): with $\mu_U = n_1 n_2 / 2$, $\sigma_U = \sqrt{n_1 n_2 (n_1+n_2+1)/12}$, $z = (U - \mu_U)/\sigma_U$, and $p = 2\Phi(-|z|)$, where $\Phi$ is evaluated by the Abramowitz--Stegun 26.2.17 rational approximation. The effect size is Cliff's $\delta = (U_1 - U_2)/(n_1 n_2) \in [-1,1]$~\cite{cliff1993}. Multiplicity is controlled by Holm--Bonferroni step-down over all tests; a result is \emph{significant} if $p_{\text{corr}} < 0.05$ and \emph{confirmed} if additionally $|\delta| \ge 0.2$. Method pairs tested are (A vs Proposed), (B vs Proposed), and (A vs B). The same seed sequence is applied to all conditions, eliminating seed-selection bias from pairwise comparisons.
+For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--Whitney U test\wikifn{Mann-Whitney_U_test} with Cliff's $\delta$~\cite{cliff1993}. Multiplicity uses Holm--Bonferroni\wikifn{Holm-Bonferroni_method} step-down over the full battery. A result is \emph{significant} if $p_{\text{corr}} < 0.05$ and \emph{confirmed} if also $|\delta| \ge 0.2$. Pairs are (A vs Proposed), (B vs Proposed), and (A vs B). Seeds are matched across conditions.
 
 % ==================================================================
 \section{Implementation}
 \label{sec:implementation}
 % ==================================================================
 
-\subsection{Engine and Execution}
+The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE)\wikifn{Server-sent_events}. Each finished run writes a JSONL tick log (every ten ticks), a manifest, and a SQLite\wikifn{SQLite} results row. A React workbench (deck.gl / MapLibre) replays completed runs.
 
-The model is implemented in Rust on the krABMaga agent-based framework~\cite{krabmaga2023}, with an axum/tokio REST + WebSocket server and a rayon-parallel batch runner. Experiments are \emph{batch-first}: a batch of (scenario $\times$ method $\times$ seed) runs executes in parallel in the background, and each run --- the moment it finishes --- writes a per-run JSONL tick log (one frame every ten ticks), a manifest, and a row of \texttt{summary.csv}, so a completed seed becomes replayable while the remaining runs are still computing. Runs are inspected through an interactive React dashboard that renders any completed run on a WebGL map (deck.gl layers over a MapLibre basemap): vessels as heading-oriented markers coloured by lifecycle state, ports, the storm zone, dispatched SAR and man-overboard assets, collision and wreck markers, the comms log, a hazard-field overlay, and the KPIs. Playback GPU-interpolates marker positions between logged frames so motion stays smooth at any speed; to keep replay lightweight the logged frames embed a downsampled ($25\times25$) hazard field rather than the full live grid. Vessel agents are scheduled at krABMaga ordering 200 and a single post-tick agent at ordering 1000.
-
-\subsection{Simulation Loop}
+\subsection{Tick Ordering}
 \label{sec:loop}
 
-Each macro tick runs four ordered phases (Fig.~\ref{fig:tick}) whose ordering is a causal constraint: (1)~\emph{weather} --- advance the field and apply any scenario-scripted event; (2)~\emph{perception \& communication} --- each vessel samples local hazard, updates fatigue (Eqs.~\ref{eq:circadian}--\ref{eq:gF}), and CPA-screened encounters attempt their warning exchange (Eq.~\ref{eq:pcomms}); (3)~\emph{agent step} --- vessels navigate at hazard-gated speed (Section~\ref{sec:speed}) or hold for avoidance, and rescue agents decrement mobilisation or advance under the SAR penalty (Section~\ref{sec:sar}); (4)~\emph{physics \& housekeeping} --- hard-collision and grounding checks, SIMCOL consequence evaluation (Section~\ref{sec:consequence}), terminal-vessel respawn, logging, and clock advance.
+Within a tick, vessel agents step first (krABMaga order $200$), then a post-tick agent (order $1000$) runs the shared physics pipeline shown in Fig.~\ref{fig:tick}: weather advance; grounding revert; hazard and storm speed damping; fatigue; CPA avoidance and comms draws; following; rising-edge collisions and SIMCOL; SAR/MOB; fleet top-up; KPI accumulate; optional JSONL frame. Navigation therefore uses weather and avoidance state from the previous tick's post-tick pass.
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[
   >=Stealth, font=\footnotesize,
   ph/.style={draw, rounded corners=3pt, fill=gray!10,
-             minimum width=1.55cm, minimum height=1.25cm,
-             align=center, text width=1.5cm, inner sep=2pt},
+             minimum width=1.7cm, minimum height=1.25cm,
+             align=center, text width=1.65cm, inner sep=2pt},
   arr/.style={->, semithick},
-  node distance=0.45cm,
 ]
-  \node[ph] (w) {\textbf{Weather}\\field update + scripted event};
-  \node[ph, right=of w] (c) {\textbf{Perceive \&\\comms}\\$W$, $F$, $P_{\text{comms}}$};
-  \node[ph, right=of c] (a) {\textbf{Agent\\step}\\navigate / rescue};
-  \node[ph, right=of a] (p) {\textbf{Physics \&\\housekeep}\\collide, SIMCOL, log};
-  \draw[arr] (w) -- (c);
-  \draw[arr] (c) -- (a);
+  \node[ph] (a) {\textbf{1. Navigate}\\agents step};
+  \node[ph, right=0.45cm of a] (p) {\textbf{2. Post-tick}\\weather, fatigue, CPA, collide, SAR, KPIs};
   \draw[arr] (a) -- (p);
-  \draw[arr] (p.north) to[out=90, in=90] node[above, font=\scriptsize]{next tick ($+0.25$\,h)} (w.north);
+  \draw[arr] (p.north) to[out=90, in=90] node[above, font=\scriptsize]{next tick} (a.north);
 \end{tikzpicture}
-\caption{The four ordered phases of each $15$-minute macro tick. Data flows strictly left to right within a tick; weather precedes perception so a vessel acts on the field issued in the same tick, and physics/housekeeping closes the tick before the clock advances.}
+\caption{Macro-tick order. Agents navigate, then the post-tick pipeline updates weather, human factors, encounters, and outcomes.}
 \label{fig:tick}
 \end{figure}
 
-\subsection{Speed Reduction under Hazard}
+\subsection{Speed Reduction}
 \label{sec:speed}
 
-Two multiplicative slow-downs are applied by interpolating the just-moved position back toward the last valid position by a factor $f$. The hazard-gated factor (Baseline~B and Proposed only; Baseline~A ignores weather) is
-%
-\begin{equation}
-  f_W = \max\big(0.30,\ 1 - 0.45\,W\big),
-  \label{eq:fw}
-\end{equation}
-%
-and a storm-zone factor $f_{\text{storm}} \in \{1.0\,(\text{A}),\,0.45\,(\text{storm corridor}),\,0.70\,(\text{default})\}$ damps speed inside the moving zone, acting as an implicit braking mechanism that lowers closing rates in deteriorating weather.
+Baseline~B and Proposed interpolate the just-moved position toward the last valid position by
+\begin{equation*}
+  f_W = \max\big(0.30,\ 1 - 0.45\,W\big).
+\end{equation*}
+Baseline~A ignores this factor. Inside the storm zone an extra factor applies: $1.0$ for Baseline~A, $0.45$ in Storm Corridor for the other methods (default non-corridor storm factor $0.70$ when a storm is enabled).
 
-\subsection{Weather Process Parameters}
-\label{sec:weather-impl}
+% ==================================================================
+\section{Results}
+\label{sec:results}
+% ==================================================================
 
-The seven-stage field of Section~\ref{sec:weather} uses: regime flip probabilities $p_{cs}=0.03$, $p_{sc}=0.08$ (Mixed preset; scaled $\times(0.35,1.40)$ Calm, $\times(2.00,0.50)$ Stormy); reversion targets Calm$(0.30,0.80,0.25)$ / Storm$(0.72,0.30,0.75)$; up to $K_{\max}=8$ storm cells with intensity decay $\tau \in \{0.006\,\text{storm}, 0.020\,\text{calm}\}$, radius $r = 8(1+0.15\sin\theta)\sqrt{I}$, and removal at $I<0.12$; an AR(1) background
-%
-\begin{equation}
-  X_{t+1} = \rho_X\,\mathrm{adv}(X_t) + (1-\rho_X)\,\mu_X + \sigma_X(0.3+\mathfrak{u})\,\eta_t,
-  \label{eq:ar1}
-\end{equation}
-%
-with $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0.07,0.06,0.07)$, unpredictability $\mathfrak{u}=0.30$, and $\eta \sim \mathcal{U}(-1,1)$; a system overlay $\omega = (1-\sqrt{d^2/r^2})^2 I$ adding to $s,u$ and subtracting $0.85\omega$ from $v$; cross-channel coupling $s \mathrel{+}= 0.35(u{-}0.5) - 0.20(v{-}0.5)$, $u \mathrel{-}= 0.25(v{-}0.5)$; and a 5-point smoother with gradient cap $G_{\max}=0.12$.
+The definitive batch ran $30$ seeds $\times$ $4$ scenarios $\times$ $3$ methods ($360$ runs). Confirmation requires $p_{\mathrm{corr}}<0.05$ and $|\delta|\ge 0.2$. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts.
+
+\subsection{Calibration and Storm Contrast}
+\label{sec:results-calib}
+
+Under Baseline~A, Calm Passage mean collisions were $0.60$ per $1\,000$ ship-hours (inside the $0.5$--$1.5$ band). Storm Corridor raised that rate to $1.48$ ($2.48\times$ calm), restoring a clear weather contrast after the depth+lane route rebase.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=2\columnwidth]{figures/kpi_boxplots.png}
+\caption{Per-run KPI distributions for the definitive batch ($30$ seeds). A~=~Baseline~A, B~=~Baseline~B, P~=~Proposed.}
+\label{fig:kpi-box}
+\end{figure*}
+
+\subsection{Hypotheses H1--H3}
+\label{sec:results-h}
+
+Table~\ref{tab:results-h} summarises the pre-registered contrasts. \textbf{H1} and \textbf{H2} are not confirmed: fatal rates and survival ratios sit near floor/ceiling in Calm Passage, Storm Corridor, and Blind Shore, so tests have little power. Deep Water Rescue has a higher fatal base rate; Proposed reduces mean fatals from $0.038$ (Baseline~A) to $0.023$ (${\approx}39\,\%$), but survival is almost unchanged and neither contrast survives Holm ($p_{\mathrm{corr}}=1$, $|\delta|\le 0.02$). \textbf{H3} is non-significant (means $0.0022$ vs $0.0024$).
+
+\begin{table}[t]
+\centering
+\caption{Pre-registered hypothesis outcomes (definitive $30$-seed batch).}
+\label{tab:results-h}
+\small
+\begin{tabularx}{\columnwidth}{@{}lXcc@{}}
+\toprule
+Hyp. & Contrast & Verdict & Cliff's $\delta$ \\
+\midrule
+H1 & Fatal rate, Proposed vs A & Not confirmed & $|\delta|\le 0.07$ \\
+H2 & Survival ratio, Proposed vs A & Not confirmed & $|\delta|\le 0.07$ \\
+H3 & Fatals under Storm, Proposed vs B & Not confirmed & $\delta\approx 0.00$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/hypothesis_deltas.png}
+\caption{Cliff's $\delta$ for H1--H3-relevant pairs. Green: confirmed; amber: significant only; grey: not significant after Holm.}
+\label{fig:hyp-delta}
+\end{figure}
+
+\subsection{Mechanism and Collisions}
+\label{sec:results-mech}
+
+Mean $P_{\mathrm{prep}}$ is higher for Proposed than for either baseline in every scenario, with confirmed effects ($|\delta|\in[0.90,1.00]$). Mean Storm Corridor collisions fall from $1.48$ to $1.07$ versus Baseline~A (${\approx}28\,\%$, $\delta{=}0.32$), but that contrast is not significant after family-wise Holm correction.
 
 % ==================================================================
 \section{Discussion}
 \label{sec:discussion}
 % ==================================================================
 
-The model's defensible core is the explicit, quantified coupling in Eq.~\ref{eq:pcomms}: a single collision-warning exchange succeeds only when both the environment and both crews permit it. This makes the central hypotheses (H1--H3) mechanistic rather than correlational --- fatigue management ($m$ in Eq.~\ref{eq:m}) acts on outcomes solely by changing how often warnings are delivered and how prepared crews are, with no other lever distinguishing the conditions. Re-baselining the report on the real Baltic--North Sea engine, with depth- and lane-constrained synthetic tracks and a gazetteer of real ports (Section~\ref{sec:routegen}), keeps the experiment controlled while remaining geographically realistic.
+The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and both crews allow it. Methods differ by fatigue build-rate $m$ (Eq.~\ref{eq:m}), weather/storm speed awareness, and preparedness weights $\alpha_M$. The batch confirms the preparedness lever and a directional storm-collision benefit, but not the pre-registered fatal/survival thresholds. Fatal events are rare outside Deep Water Rescue, so H1--H3 are under-powered even when point estimates move in the expected direction.
 
-The accredited layers raise the model from an internal A/B comparison toward external validity. SIMCOL (Section~\ref{sec:consequence}) grounds casualty counts in collision mechanics rather than a tunable rate; IWRAP (Section~\ref{sec:iwrap}) places the resulting frequencies on a regulator-recognised scale; and the SAR subsystem (Section~\ref{sec:sar}) makes \texttt{survival\_ratio} and \texttt{avg\_tta\_hours} meaningful by modelling drift, random-search detection, and environmental degradation rather than instantaneous rescue. The SIMCOL external dynamics are pinned to the Pedersen--Zhang closed form, with the absorbed energy carried by the normal closing-velocity component and Lützen's added-mass coefficients (Eq.~\ref{eq:eabs}); the only modelling surrogate in the consequence chain is the survival factor $S_i$ (Eq.~\ref{eq:sfactor}), shaped to the SOLAS~II-1 $s$-factor because the engine does not resolve per-ship residual stability. The SAR environmental degradation is likewise pinned to Ashrafi's published month-group constants (Section~\ref{sec:sar-ashrafi}). The optional force-field repulsion exponent (Section~\ref{sec:forcefield}) is the one constant its source does not fix---it is set there by coarse optimisation with AIS calibration still in development---so rather than hardcode a false-precision value the model exposes it as a tunable parameter defaulting to the standard inverse-square form.
+Accredited layers add external structure: SIMCOL for damage~\cite{lutzen2001}, IWRAP for network frequency~\cite{friishansen2008iwrap}, and MASSIM/Ashrafi for rescue~\cite{karatas2018,ashrafi2024}. The survival factor $S_i$ (Eq.~\ref{eq:sfactor}) is a SOLAS-shaped surrogate, not a full residual-stability calculation.
 
-Limitations follow from the controlled design. Procedurally synthesised tracks (Section~\ref{sec:routegen}) trade some empirical traffic realism for reproducibility, though they respect real bathymetry and AIS-derived lane structure; the deterministic lower-id give-way rule is a simplification of full COLREGs assignment; and the optional force-field track (Section~\ref{sec:forcefield}) is not the default. Calibration targets --- notably fewer than $0.5$ collisions per $1\,000$ ship-hours under Baseline~A in the Calm Passage scenario --- are grounded in AIS-derived near-miss encounter statistics~\cite{silveira2013,zhang2015}.
+Main limitations: synthesised routes trade some traffic realism for control; the lower-id give-way rule simplifies COLREGs; force-field avoidance is off by default; KPI fatalities count only MOB timeouts; IWRAP stamps use static routes rather than per-run tracks. Calibration under Baseline~A Calm Passage ($0.60$ collisions per $1\,000$ ship-hours) sits near published AIS near-miss bands~\cite{silveira2013,zhang2015}. Longer runs or collision-rate primary endpoints would raise power on fatal contrasts.
 
 \bibliographystyle{IEEEtran}
 \bibliography{mybib}
@@ -710,29 +682,29 @@ Limitations follow from the controlled design. Procedurally synthesised tracks (
 \appendix
 % ==================================================================
 
-\section{Default Constants Reference}
+\section{Default Constants}
 \label{apx:constants}
 
-Table~\ref{tab:constants} lists the principal engine constants with default values; all are overridable via \texttt{SimulationConfig} or the dashboard.
+Table~\ref{tab:constants} lists principal defaults (overridable in configuration).
 
-\begin{table}[htbp]
+\begin{table}[t]
     \caption{Selected engine default constants.}
     \label{tab:constants}
     \centering
     \small
-    \begin{tabularx}{\columnwidth}{@{}llX@{}}
+    \begin{tabular}{@{}llp{0.42\columnwidth}@{}}
         \toprule
         Constant & Default & Role \\
         \midrule
-        $\Delta t$ & 0.25\,h & tick length (15\,min) \\
-        $T$ & 2880 & ticks per run (30 d) \\
+        $\Delta t$ & 0.25\,h & tick length ($15$\,min) \\
+        $T$ & 2880 & ticks per run ($30$\,d) \\
         weather grid & $50\times50$ & hazard field \\
         $(w_s,w_v,w_u)$ & $(1.0,0.5,0.8)$ & hazard fusion weights \\
         warn / CPA / TTA gate & 20 / 5\,nm / 12 tk & avoidance gate \\
         $L_f,L_o$ & 3 / 5\,nm & give-way waypoint offsets \\
         cooldown & 3 tk & re-manoeuvre lockout \\
         $r_{\text{coll}}$ & 0.05\,nm & hit at $2r=0.10$\,nm \\
-        port collision exclusion & 1\,nm & VTS harbour water \\
+        port collision exclusion & 1\,nm & harbour water \\
         follow vicinity / gap & 3 / 0.5\,nm & speed-match / keep-distance \\
         same-destination & 5\,nm & endpoint match radius \\
         $(m_{\text{sway}},m_{\text{surge}})$ & $0.85, 0.05$ & SIMCOL added mass \\
@@ -742,19 +714,22 @@ Table~\ref{tab:constants} lists the principal engine constants with default valu
         $(\beta_{\text{base}},\beta_W,\beta_c)$ & $0.0015,0.0040,0.0008$ & fatigue rates \\
         recovery & 0.025/tk & dock fatigue recovery \\
         $F^\ast,\kappa$ & 0.40, 0.65 & comms-degradation knee \\
-        storm comms rate & 0.08 & corridor link reliability \\
+        storm-comms (corridor) & 0.08 & Storm Corridor link rate \\
+        storm-comms (generic default) & 0.30 & when storm enabled outside corridor presets \\
         $n$ crew & 10 & per vessel \\
         dwell & 8--48 tk & port stay \\
         helicopter / patrol & 80 / 25\,kn & rescue asset speeds \\
         $\Delta t_{\text{mob}}$ & 2 tk & rescue mobilisation delay \\
-        helo / patrol cutoff & 40\,nm & SAR asset-selection datum range \\
+        helo / patrol cutoff & 40\,nm & SAR asset-selection range \\
         $w,\,r_0,\,u_d$ & 5\,nm, 2\,nm, 0.2\,nm/tk & MASSIM sweep / datum / drift \\
-        survival window & 96 tk & liferaft endurance (24\,h) \\
-        $\tau_{\text{mob}}$ & 12 tk & MOB cold-water window (3\,h) \\
-        MOB scatter & 0.5\,nm & person-in-water datum spread \\
+        survival window & 96 tk & liferaft endurance ($24$\,h) \\
+        $\tau_{\text{mob}}$ & 12 tk & MOB cold-water window ($3$\,h) \\
+        MOB scatter & 0.5\,nm & person-in-water spread \\
         $P_c$ (IWRAP) & $0.5\text{--}1.3{\times}10^{-4}$ & causation probability \\
         \bottomrule
-    \end{tabularx}
+    \end{tabular}
 \end{table}
+
+Weather-field process (Mixed preset): regime flips $p_{cs}=0.03$, $p_{sc}=0.08$; Calm/Storm reversion targets $(0.30,0.80,0.25)$ / $(0.72,0.30,0.75)$; up to $8$ storm cells; AR(1) coefficients $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0.07,0.06,0.07)$; gradient cap $0.12$. Calm and Stormy presets scale the flip rates.
 
 \end{document}
