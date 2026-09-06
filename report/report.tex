@@ -43,14 +43,7 @@ Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018
 \label{sec:intro}
 % ==================================================================
 
-Maritime transport moves most of world trade, but safety remains limited by human factors~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters, and hull and machinery claims remain large~\cite{iumi2023}. The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}:
-
-\begin{itemize}
-    \item \textbf{Weather and radio.} Sea clutter and storms reduce the chance that a marine VHF warning is heard and acted on. Many models assume that once risk is detected, the manoeuvre always happens.
-    \item \textbf{Crew fatigue.} Fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}. Prior work often keeps fatigue in a side model, without a direct link to whether a warning is executed.
-\end{itemize}
-
-This paper couples those effects in one product: warning success depends on both local weather and crew fatigue (Fig.~\ref{fig:causal}). Sections~\ref{sec:model}--\ref{sec:sar} define the Baltic--North Sea ABM, fatigue-aware CPA avoidance, SIMCOL damage~\cite{lutzen2001}, and SAR. Section~\ref{sec:iwrap} places network frequency on an IWRAP scale~\cite{friishansen2008iwrap}; Sections~\ref{sec:experiment}--\ref{sec:results} report the factorial comparison.
+Maritime transport moves most of world trade, but safety remains limited by human factors~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters, and hull and machinery claims remain large~\cite{iumi2023}. The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}. Weather and radio: sea clutter and storms reduce the chance that a marine VHF warning is heard and acted on, yet many models assume that once risk is detected the manoeuvre always happens. Crew fatigue: fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}, but prior work often keeps it in a side model without a direct link to whether a warning is executed. This paper couples those effects in one product: warning success depends on both local weather and crew fatigue (Fig.~\ref{fig:causal}). Sections~\ref{sec:model}--\ref{sec:sar} define the Baltic--North Sea ABM, fatigue-aware CPA avoidance, SIMCOL damage~\cite{lutzen2001}, and SAR. Section~\ref{sec:iwrap} places network frequency on an IWRAP scale~\cite{friishansen2008iwrap}; Sections~\ref{sec:experiment}--\ref{sec:results} report the factorial comparison.
 
 \begin{figure*}[t]
 \centering
@@ -98,21 +91,7 @@ This paper couples those effects in one product: warning success depends on both
 \label{sec:goal}
 % ==================================================================
 
-We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations (storm-zone radio loss is shared by all methods---environmental, not a method privilege):
-
-\begin{description}
-    \item[Baseline~A (Classical)] COLREGs give-way, no weather-aware slowdown, unmanaged fatigue.
-    \item[Baseline~B (Shore Rest Alerts)] Weather-aware speed reduction and slower fatigue build-up; no further mitigation.
-    \item[Proposed System] Smart watch scheduling (lowest fatigue build-rate) on top of Baseline~B.
-\end{description}
-
-\noindent Hypotheses:
-
-\begin{description}
-    \item[H1.] Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}).
-    \item[H2.] Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A.
-    \item[H3.] Under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
-\end{description}
+We test whether linking fatigue management to warning reliability reduces fatal outcomes more than classical, weather-unaware practice. We implement three configurations (storm-zone radio loss is shared by all methods---environmental, not a method privilege). Baseline~A (Classical) uses COLREGs give-way with no weather-aware slowdown and unmanaged fatigue. Baseline~B (Shore Rest Alerts) adds weather-aware speed reduction and slower fatigue build-up. The Proposed System keeps Baseline~B's slowdowns and adds smart watch scheduling (lowest fatigue build-rate). Hypotheses: H1---Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}); H2---Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A; H3---under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
 
 % ==================================================================
 \section{Simulation Model}
@@ -140,11 +119,7 @@ Agents are ships; after an incident, rescue assets appear (Section~\ref{sec:sar}
   10 + 10u & \text{otherwise.}
   \end{cases}
 \end{equation*}
-
-\begin{description}
-    \item[Waypoint pursuit.] The active target is an avoidance waypoint if one is queued, otherwise the current route waypoint. A waypoint is reached within $0.5$\,nm. The step length is $s = \min(v_i\,\Delta t,\ \rho)$. Moves use up to five geometrically halved lengths so thin land is not tunnelled; a post-move check reverts grounding to the last valid position. At a port or route end the ship dwells $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses. Fleet size $N$ is held fixed: when a ship is removed, a new one is spawned on a random synthesised track.
-    \item[Same-destination following.] Co-directional ships with endpoints within $5$\,nm share a destination. A trailer within $3$\,nm of a leader matches the leader's speed; within $0.5$\,nm it holds station. This avoids side-by-side overlap that the give-way rule does not separate.
-\end{description}
+Waypoint pursuit: the active target is an avoidance waypoint if one is queued, otherwise the current route waypoint. A waypoint is reached within $0.5$\,nm. The step length is $s = \min(v_i\,\Delta t,\ \rho)$. Moves use up to five geometrically halved lengths so thin land is not tunnelled; a post-move check reverts grounding to the last valid position. At a port or route end the ship dwells $D \sim \mathcal{U}\{8,48\}$ ticks, then reverses. Fleet size $N$ is held fixed: when a ship is removed, a new one is spawned on a random synthesised track. Same-destination following: co-directional ships with endpoints within $5$\,nm share a destination; a trailer within $3$\,nm of a leader matches the leader's speed, and within $0.5$\,nm it holds station. This avoids side-by-side overlap that the give-way rule does not separate.
 
 
 \subsection{Route Generation}
