@@ -15,10 +15,32 @@ Usage
 Outputs (written to ./outputs)
 ------------------------------
   sweep_summary.csv   one row per (sweep point x scenario x method): the swept
-                      parameter columns + n_runs + mean of each KPI. This is the
-                      parameter-vs-KPI comparison table.
+                      parameter columns + n_runs + mean of each KPI.
+  sweep_ranked.csv    one row per sweep point with an objective score (lower =
+                      better), sorted best-first. See score_point() below.
   sweep_all.parquet   raw per-run table (label, params, all KPIs) for deeper
                       analysis (load with polars; pandas needs a working pyarrow).
+
+Objective score (lower is better)
+---------------------------------
+  score = calib_calm + calib_ratio + signal_h1 + signal_h2 + signal_h3
+
+  calib_calm   = |CalmPassage BaselineA collision_per_1k_hrs − 1.0|
+  calib_ratio  = |StormCorridor/CalmPassage BaselineA collision ratio − 2.7|
+                 (0 if either scenario missing)
+  signal_h1    = max(0, 0.20 − relative_reduction) where relative_reduction is
+                 (A−Proposed)/A on fatal_per_1k_hrs (pooled over scenarios with
+                 both methods; prefers ≥20 % reduction)
+  signal_h2    = max(0, 0.15 − relative_gain) on survival_ratio Proposed vs A
+  signal_h3    = max(0, 0.20 − relative_reduction) on StormCorridor fatals
+                 Proposed vs BaselineB
+
+Axes
+----
+* SWEEP  — cartesian product of independent dotted SimConfig paths.
+* VARIANTS — when non-empty, each dict is one coupled override set (matched
+  ais_path + ports_path, etc.) and SWEEP is ignored. Use this for Tier-2
+  route/lane variants that must stay zipped together.
 
 Notes
 -----
@@ -41,19 +63,24 @@ import urllib.request
 API = "http://localhost:3000"
 
 # ── CONFIG ── edit this block ────────────────────────────────────────────────
-SCENARIOS = ["StormCorridor"]
-METHODS = ["ProposedSystem", "BaselineA"]
-N_SEEDS = 30
+SCENARIOS = ["CalmPassage", "StormCorridor"]
+METHODS = ["ProposedSystem", "BaselineA", "BaselineB"]
+N_SEEDS = 5
 N_TICKS = 2880
 
-# Each entry maps a dotted SimConfig path to the list of values to sweep over.
-# The script runs the full cartesian product of every axis listed here.
-# Nested params use dots, e.g. "forcefield.enabled".
+# Cartesian product of independent axes. Ignored when VARIANTS is non-empty.
 SWEEP: dict[str, list] = {
-    "collision_warn_cpa_nm": [0.5, 1.0, 2.0, 5.0],
-    # "forcefield.enabled": [False, True],
-    # "comms_success_rate": [1.0, 0.7, 0.4],
+    "storm_comms_success_rate": [0.04, 0.08, 0.15],
+    "storm_radius_nm": [120.0, 160.0, 200.0],
 }
+
+# Coupled override sets (zipped axes). When non-empty, each entry is one sweep
+# point and SWEEP is ignored. Example Tier-2:
+# VARIANTS = [
+#     {"ais_path": "/tmp/routes_sparse.json", "ports_path": "/tmp/ports.json"},
+#     {"ais_path": "/tmp/routes_dense.json",  "ports_path": "/tmp/ports.json"},
+# ]
+VARIANTS: list[dict] = []
 # ─────────────────────────────────────────────────────────────────────────────
 
 KPI_KEYS = [
@@ -64,6 +91,12 @@ KPI_KEYS = [
     "evac_activation_rate",
     "mean_p_prep",
 ]
+
+TARGET_CALM_COLLISION = 1.0
+TARGET_STORM_CALM_RATIO = 2.7
+TARGET_H1_REDUCTION = 0.20
+TARGET_H2_GAIN = 0.15
+TARGET_H3_REDUCTION = 0.20
 
 
 # ── HTTP helpers (stdlib only) ───────────────────────────────────────────────
@@ -111,10 +144,23 @@ def derive_label(combo: dict) -> str:
 
 # ── sweep logic ──────────────────────────────────────────────────────────────
 def expand_combos() -> list[dict]:
+    if VARIANTS:
+        return [dict(v) for v in VARIANTS]
     if not SWEEP:
         return [{}]
     names = list(SWEEP.keys())
     return [dict(zip(names, vals)) for vals in itertools.product(*SWEEP.values())]
+
+
+def param_columns(combos: list[dict]) -> list[str]:
+    cols: list[str] = []
+    seen: set[str] = set()
+    for combo in combos:
+        for k in combo:
+            if k not in seen:
+                seen.add(k)
+                cols.append(k)
+    return cols
 
 
 def wait_for_batch() -> None:
@@ -143,6 +189,138 @@ def group_means(results: list) -> list[dict]:
     return rows
 
 
+def _num(row: dict, key: str) -> float | None:
+    v = row.get(key)
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def _lookup(rows: list[dict], scenario: str, method: str) -> dict | None:
+    for r in rows:
+        if r.get("scenario") == scenario and r.get("method") == method:
+            return r
+    return None
+
+
+def _rel_reduction(baseline: float | None, proposed: float | None) -> float | None:
+    if baseline is None or proposed is None or baseline <= 0:
+        return None
+    return (baseline - proposed) / baseline
+
+
+def _rel_gain(baseline: float | None, proposed: float | None) -> float | None:
+    if baseline is None or proposed is None or baseline <= 0:
+        return None
+    return (proposed - baseline) / baseline
+
+
+def score_point(point_rows: list[dict]) -> dict:
+    """Lower score is better. See module docstring for formula."""
+    calm_a = _lookup(point_rows, "CalmPassage", "BaselineA")
+    storm_a = _lookup(point_rows, "StormCorridor", "BaselineA")
+
+    calm_coll = _num(calm_a, "collision_per_1k_hrs") if calm_a else None
+    storm_coll = _num(storm_a, "collision_per_1k_hrs") if storm_a else None
+
+    calib_calm = abs(calm_coll - TARGET_CALM_COLLISION) if calm_coll is not None else 0.0
+    if calm_coll and storm_coll and calm_coll > 0:
+        ratio = storm_coll / calm_coll
+        calib_ratio = abs(ratio - TARGET_STORM_CALM_RATIO)
+    else:
+        ratio = None
+        calib_ratio = 0.0
+
+    # H1 / H2: pool scenarios that have both A and Proposed
+    h1_gaps: list[float] = []
+    h2_gaps: list[float] = []
+    for scenario in {r["scenario"] for r in point_rows}:
+        a = _lookup(point_rows, scenario, "BaselineA")
+        p = _lookup(point_rows, scenario, "ProposedSystem")
+        if not a or not p:
+            continue
+        red = _rel_reduction(_num(a, "fatal_per_1k_hrs"), _num(p, "fatal_per_1k_hrs"))
+        if red is not None:
+            h1_gaps.append(red)
+        gain = _rel_gain(_num(a, "survival_ratio"), _num(p, "survival_ratio"))
+        if gain is not None:
+            h2_gaps.append(gain)
+
+    h1_red = sum(h1_gaps) / len(h1_gaps) if h1_gaps else None
+    h2_gain = sum(h2_gaps) / len(h2_gaps) if h2_gaps else None
+    signal_h1 = max(0.0, TARGET_H1_REDUCTION - h1_red) if h1_red is not None else 0.0
+    signal_h2 = max(0.0, TARGET_H2_GAIN - h2_gain) if h2_gain is not None else 0.0
+
+    storm_b = _lookup(point_rows, "StormCorridor", "BaselineB")
+    storm_p = _lookup(point_rows, "StormCorridor", "ProposedSystem")
+    h3_red = None
+    if storm_b and storm_p:
+        h3_red = _rel_reduction(
+            _num(storm_b, "fatal_per_1k_hrs"), _num(storm_p, "fatal_per_1k_hrs")
+        )
+    signal_h3 = max(0.0, TARGET_H3_REDUCTION - h3_red) if h3_red is not None else 0.0
+
+    score = calib_calm + calib_ratio + signal_h1 + signal_h2 + signal_h3
+    return {
+        "score": round(score, 6),
+        "calib_calm": round(calib_calm, 6),
+        "calib_ratio": round(calib_ratio, 6),
+        "storm_calm_ratio": round(ratio, 6) if ratio is not None else "",
+        "h1_rel_reduction": round(h1_red, 6) if h1_red is not None else "",
+        "h2_rel_gain": round(h2_gain, 6) if h2_gain is not None else "",
+        "h3_rel_reduction": round(h3_red, 6) if h3_red is not None else "",
+        "signal_h1": round(signal_h1, 6),
+        "signal_h2": round(signal_h2, 6),
+        "signal_h3": round(signal_h3, 6),
+        "calm_a_collision": round(calm_coll, 6) if calm_coll is not None else "",
+        "storm_a_collision": round(storm_coll, 6) if storm_coll is not None else "",
+    }
+
+
+def write_ranked(summary_rows: list[dict], param_cols: list[str]) -> None:
+    """Aggregate summary rows by sweep point and write sweep_ranked.csv."""
+    by_point: dict[tuple, list[dict]] = {}
+    for row in summary_rows:
+        key = tuple(row.get(c, "") for c in param_cols)
+        by_point.setdefault(key, []).append(row)
+
+    ranked: list[dict] = []
+    for key, rows in by_point.items():
+        combo = dict(zip(param_cols, key))
+        metrics = score_point(rows)
+        ranked.append({**combo, **metrics, "label": derive_label(combo)})
+
+    ranked.sort(key=lambda r: r["score"])
+    cols = (
+        ["rank", "score", "label"]
+        + param_cols
+        + [
+            "calib_calm",
+            "calib_ratio",
+            "storm_calm_ratio",
+            "h1_rel_reduction",
+            "h2_rel_gain",
+            "h3_rel_reduction",
+            "signal_h1",
+            "signal_h2",
+            "signal_h3",
+            "calm_a_collision",
+            "storm_a_collision",
+        ]
+    )
+    path = "outputs/sweep_ranked.csv"
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for i, row in enumerate(ranked, 1):
+            w.writerow({"rank": i, **row})
+    print(f"Wrote {path}  ({len(ranked)} points, best score={ranked[0]['score'] if ranked else 'n/a'})")
+    if ranked:
+        best = ranked[0]
+        print(
+            f"  best: {best['label']}  storm/calm={best['storm_calm_ratio']}  "
+            f"H1={best['h1_rel_reduction']} H2={best['h2_rel_gain']} H3={best['h3_rel_reduction']}"
+        )
+
+
 def preflight() -> bool:
     try:
         _get("/health")
@@ -165,8 +343,9 @@ def main() -> None:
     API = args.api
 
     combos = expand_combos()
+    mode = "VARIANTS" if VARIANTS else ("SWEEP" if SWEEP else "default")
     total_runs = len(combos) * len(SCENARIOS) * len(METHODS) * N_SEEDS
-    print(f"Sweep: {len(combos)} point(s) x {len(SCENARIOS)} scenario(s) x "
+    print(f"Sweep ({mode}): {len(combos)} point(s) x {len(SCENARIOS)} scenario(s) x "
           f"{len(METHODS)} method(s) x {N_SEEDS} seeds = {total_runs} runs")
 
     if args.dry_run:
@@ -200,13 +379,15 @@ def main() -> None:
             summary_rows.append({**combo, **row})
 
     os.makedirs("outputs", exist_ok=True)
-    param_cols = list(SWEEP.keys())
+    param_cols = param_columns(combos)
     cols = param_cols + ["scenario", "method", "n_runs"] + KPI_KEYS
     with open("outputs/sweep_summary.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols)
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
         w.writerows(summary_rows)
     print(f"\nWrote outputs/sweep_summary.csv  ({len(summary_rows)} rows)")
+
+    write_ranked(summary_rows, param_cols)
 
     try:
         _download("/sim/batch/export.parquet?all=true", "outputs/sweep_all.parquet")
@@ -214,14 +395,15 @@ def main() -> None:
     except urllib.error.HTTPError as e:
         print(f"Parquet export skipped: {e}")
 
-    # Pretty-print the comparison table if polars is available (optional).
     try:
         import polars as pl  # noqa: WPS433
 
         print("\nParameter vs KPI comparison:")
         print(pl.read_csv("outputs/sweep_summary.csv"))
+        print("\nRanked sweep points:")
+        print(pl.read_csv("outputs/sweep_ranked.csv"))
     except Exception:
-        print("\n(install polars for a pretty pivot; sweep_summary.csv is ready to plot)")
+        print("\n(install polars for a pretty pivot; CSVs are ready to plot)")
 
 
 if __name__ == "__main__":

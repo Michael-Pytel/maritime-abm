@@ -15,6 +15,7 @@
 //! ```text
 //! cargo run -p aisprocess --bin gen_routes -- \
 //!     [--seed 42] [--grid-nm 1.0] [--clearance-nm 2.5] \
+//!     [--w-lane 2.5] [--w-shallow 3.0] [--jitter 0.18] \
 //!     [--n-cargo 35] [--n-passenger 25] [--n-tanker 20] \
 //!     [--out data/ais_paths.json] [--ports-out data/ports.json]
 //! ```
@@ -45,6 +46,9 @@ struct Config {
     seed: u64,
     grid_nm: f64,
     clearance_nm: f64,
+    w_lane: f64,
+    w_shallow: f64,
+    jitter: f64,
     quotas: [(&'static str, usize); 3],
     bathy_bin: String,
     bathy_json: String,
@@ -57,10 +61,14 @@ struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let defaults = RouterParams::default();
         Self {
             seed: 42,
-            grid_nm: 1.0,
-            clearance_nm: 2.5,
+            grid_nm: defaults.grid_nm,
+            clearance_nm: defaults.min_clearance_nm,
+            w_lane: defaults.w_lane,
+            w_shallow: defaults.w_shallow,
+            jitter: defaults.jitter,
             quotas: [("cargo", 35), ("passenger", 25), ("tanker", 20)],
             bathy_bin: "data/bathymetry.bin.gz".into(),
             bathy_json: "data/bathymetry.json".into(),
@@ -85,6 +93,9 @@ fn parse_args() -> Result<Config> {
             "--seed" => cfg.seed = next()?.parse()?,
             "--grid-nm" => cfg.grid_nm = next()?.parse()?,
             "--clearance-nm" => cfg.clearance_nm = next()?.parse()?,
+            "--w-lane" => cfg.w_lane = next()?.parse()?,
+            "--w-shallow" => cfg.w_shallow = next()?.parse()?,
+            "--jitter" => cfg.jitter = next()?.parse()?,
             "--n-cargo" => cfg.quotas[0].1 = next()?.parse()?,
             "--n-passenger" => cfg.quotas[1].1 = next()?.parse()?,
             "--n-tanker" => cfg.quotas[2].1 = next()?.parse()?,
@@ -102,7 +113,9 @@ fn parse_args() -> Result<Config> {
                 }
             }
             "-h" | "--help" => {
-                eprintln!("see module docs: gen_routes --seed --grid-nm --clearance-nm --n-* --out --ports-out");
+                eprintln!(
+                    "gen_routes --seed --grid-nm --clearance-nm --w-lane --w-shallow --jitter --n-* --out --ports-out"
+                );
                 std::process::exit(0);
             }
             other => bail!("unknown argument: {other}"),
@@ -136,11 +149,14 @@ fn main() -> Result<()> {
     let params = RouterParams {
         grid_nm: cfg.grid_nm,
         min_clearance_nm: cfg.clearance_nm,
+        w_lane: cfg.w_lane,
+        w_shallow: cfg.w_shallow,
+        jitter: cfg.jitter,
         ..RouterParams::default()
     };
     eprintln!(
-        "Building {}-nm router grid (clearance {} nm) …",
-        cfg.grid_nm, cfg.clearance_nm
+        "Building {}-nm router grid (clearance {} nm, w_lane={}, w_shallow={}, jitter={}) …",
+        cfg.grid_nm, cfg.clearance_nm, cfg.w_lane, cfg.w_shallow, cfg.jitter
     );
     let router = Router::new(&bathy, params);
     eprintln!("  {}×{} cells", router.cols, router.rows);
