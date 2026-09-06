@@ -619,47 +619,50 @@ The core claim is Eq.~\ref{eq:pcomms}: a warning succeeds only when weather and 
 \section{Default Constants}
 \label{apx:constants}
 
-Table~\ref{tab:constants} lists principal defaults (overridable in configuration).
+Table~\ref{tab:constants} lists principal defaults (overridable in configuration). Scenario overrides that differ from these defaults appear in Table~\ref{tab:scenarios}.
 
 \begin{table*}[t]
     \caption{Selected engine default constants.}
     \label{tab:constants}
     \centering
     \small
-    \begin{tabular}{@{}llp{0.8\columnwidth}@{}}
+    \begin{tabular}{@{}llp{0.72\columnwidth}@{}}
         \toprule
         Constant & Default & Role \\
         \midrule
-        $\Delta t$ & 0.25\,h & tick length ($15$\,min) \\
-        $T$ & 2880 & ticks per run ($30$\,d) \\
-        weather grid & $50\times50$ & hazard field \\
-        $(w_s,w_v,w_u)$ & $(1.0,0.5,0.8)$ & hazard fusion weights \\
-        warn / CPA / time-to-arrival (TTA) gate & 20 / 5\,nm / 12 tk & avoidance gate \\
-        $L_f,L_o$ & 3 / 5\,nm & give-way waypoint offsets \\
-        cooldown & 3 tk & re-manoeuvre lockout \\
-        $r_{\text{coll}}$ & 0.05\,nm & hit at $2r=0.10$\,nm \\
-        port collision exclusion & 1\,nm & harbour water \\
-        follow vicinity / gap & 3 / 0.5\,nm & speed-match / keep-distance \\
-        same-destination & 5\,nm & endpoint match radius \\
-        $(m_{\text{sway}},m_{\text{surge}})$ & $0.85, 0.05$ & SIMCOL added mass \\
-        Minorsky $a,b$ & $47.2, 32.7$ & energy--volume (MJ, m$^3$) \\
-        $\ell/L_{pp},\tau$ & $0.12$, 0.08\,m & damage length / side steel \\
-        $r_0,r_1,S^{\dagger}$ & $0.10,0.30,0.50$ & $S_i$ knee / loss / founder \\
+        $\Delta t$, $T$ & $0.25$\,h, $2880$ & tick length; ticks per run ($30$\,d) \\
+        $N$ vessels & $20$ & Calm Passage; Storm/Blind $25$, Deep Water $15$ \\
+        $n$ crew & $10$ & per vessel \\
+        weather grid; $(w_s,w_v,w_u)$ & $50\times50$; $(1.0,0.5,0.8)$ & hazard field and fusion weights \\
+        $q$ (nominal link) & $1.0$ & fleet-wide comms rate (Blind Shore $0.55$) \\
+        warn / CPA / TTA gate & $20$ / $5$\,nm / $12$ tk & avoidance gate \\
+        $L_f,L_o$; cooldown & $3$ / $5$\,nm; $3$ tk & give-way offsets; re-manoeuvre lockout \\
+        waypoint reach & $0.5$\,nm & route / avoidance waypoint capture \\
+        $r_{\text{coll}}$; port exclusion & $0.05$\,nm; $1$\,nm & hit at $2r{=}0.10$\,nm; harbour water \\
+        follow vicinity / gap; same-dest. & $3$ / $0.5$\,nm; $5$\,nm & speed-match; endpoint match \\
+        dwell & $8$--$48$ tk & port stay \\
+        $m(\text{A/B/Proposed})$ & $1.00/0.82/0.65$ & fatigue build-rate (Eq.~\ref{eq:m}) \\
         $(\beta_{\text{base}},\beta_W,\beta_c)$ & $0.0015,0.0040,0.0008$ & fatigue rates \\
-        recovery & 0.025/tk & dock fatigue recovery \\
-        $F^\ast,\kappa$ & 0.40, 0.65 & comms-degradation knee \\
-        storm-comms (corridor) & 0.08 & Storm Corridor link rate \\
-        storm-comms (generic default) & 0.30 & when storm enabled outside corridor presets \\
-        $n$ crew & 10 & per vessel \\
-        dwell & 8--48 tk & port stay \\
-        helicopter / patrol & 80 / 25\,kn & rescue asset speeds \\
-        $\Delta t_{\text{mob}}$ & 2 tk & rescue mobilisation delay \\
-        helo / patrol cutoff & 40\,nm & SAR asset-selection range \\
-        $w,\,r_0,\,u_d$ & 5\,nm, 2\,nm, 0.2\,nm/tk & MASSIM sweep / datum / drift \\
-        survival window & 96 tk & liferaft endurance ($24$\,h) \\
-        $\tau_{\text{mob}}$ & 12 tk & MOB cold-water window ($3$\,h) \\
-        MOB scatter & 0.5\,nm & person-in-water spread \\
-        $P_c$ (IWRAP) & $0.5\text{--}1.3{\times}10^{-4}$ & causation probability \\
+        recovery; $F^\ast,\kappa$ & $0.025$/tk; $0.40,0.65$ & dock recovery; comms knee \\
+        $\alpha_M$; fatigue weight & $2.0/1.3/1.0$; $0.70$ & $P_{\text{prep}}$ awareness / $F$ term \\
+        $f_W$ (B, Proposed) & $\max(0.30,\,1-0.45\,W)$ & weather speed damping; A ignores \\
+        storm radius / drift & $120$\,nm / $0.30$\,nm/tk & generic storm; Corridor radius $160$\,nm \\
+        storm-comms & $0.30$ ($0.08$ Corridor) & link rate inside storm zone \\
+        storm speed factor & $0.70$ & A: $1.0$; Corridor non-A: $0.45$ \\
+        force-field track & off & optional Xiao-style repulsion \\
+        $(m_{\text{sway}},m_{\text{surge}})$ & $0.85,0.05$ & SIMCOL added mass \\
+        Minorsky $a,b$ & $47.2,32.7$ & energy--volume (MJ, m$^3$) \\
+        $\ell/L_{pp},\tau$ & $0.12$, $0.08$\,m & damage length / side steel \\
+        $r_0,r_1,S^{\dagger}$ & $0.10,0.30,0.50$ & $S_i$ knee / loss / founder \\
+        helo / patrol; cutoff & $80$ / $25$\,kn; $40$\,nm & SAR speeds; asset-selection range \\
+        $\Delta t_{\text{mob}}$; arrival $r$ & $2$ tk; $1$\,nm & mobilisation; datum arrival \\
+        $w,\,r_0^{\text{SAR}},\,u_d$ & $5$, $2$\,nm, $0.2$\,nm/tk & MASSIM sweep / datum / drift \\
+        survival / $\tau_{\text{mob}}$ & $96$ / $12$ tk & liferaft ($24$\,h); MOB ($3$\,h) \\
+        MOB scatter; searchers & $0.5$\,nm; $1$ & person-in-water spread; search team \\
+        sim.\ month & July (Ashrafi A) & seasonal SAR degradation group \\
+        $P_c$ (IWRAP) & $0.5$--$1.3{\times}10^{-4}$ & head-on / overtaking / crossing \\
+        route weights $(w_h,w_d,w_\ell)$ & $(3,4,2.5)$ & offline A\textsuperscript{*} cost (Section~\ref{sec:routegen}) \\
+        UKC buffer $m_s$ & $2$\,m & navigable-depth margin \\
         \bottomrule
     \end{tabular}
 \end{table*}
