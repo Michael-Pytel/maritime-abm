@@ -11,11 +11,6 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
 
-% Wikipedia overview footnote for systems/standards without a dedicated paper cite.
-\newcommand{\wikifn}[1]{%
-  \footnote{\url{https://en.wikipedia.org/wiki/#1}}%
-}
-
 \title{Human-Factor-Coupled Collision Avoidance and Search-and-Rescue\\
        in a Multi-Agent Maritime Safety Simulation:\\
        A Baltic--North Sea Case Study}
@@ -48,16 +43,16 @@ Between 70--96\,\% of maritime casualties involve human error~\cite{imohuman2018
 \label{sec:intro}
 % ==================================================================
 
-Maritime transport moves most of world trade, but safety remains limited by human factors. The International Maritime Organization (IMO)\wikifn{International_Maritime_Organization} attributes $70$--$96\,\%$ of incidents to human causes~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters. Hull and machinery claims remain large~\cite{iumi2023}.
+Maritime transport moves most of world trade, but safety remains limited by human factors. The International Maritime Organization (IMO) attributes $70$--$96\,\%$ of incidents to human causes~\cite{imohuman2018}. The European Maritime Safety Agency (EMSA)~\cite{emsa2023} reports weather as a frequent compounding factor in serious casualties, especially in congested coastal waters. Hull and machinery claims remain large~\cite{iumi2023}.
 
-The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972}\wikifn{International_Regulations_for_Preventing_Collisions_at_Sea} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}:
+The International Regulations for Preventing Collisions at Sea (COLREGs)~\cite{colregs1972} assume that crews see the encounter and can agree who gives way. That assumption breaks down under two effects that many maritime ABMs treat only loosely~\cite{tam2010,silveira2013,zhang2015}:
 
 \begin{itemize}
-    \item \textbf{Weather and radio.} Sea clutter and storms reduce the chance that a marine VHF\wikifn{Marine_VHF_radio} warning is heard and acted on. Many models assume that once risk is detected, the manoeuvre always happens.
+    \item \textbf{Weather and radio.} Sea clutter and storms reduce the chance that a marine VHF warning is heard and acted on. Many models assume that once risk is detected, the manoeuvre always happens.
     \item \textbf{Crew fatigue.} Fatigue builds over a watch and follows a circadian pattern~\cite{chauvin2013}. Prior work often keeps fatigue in a side model, without a direct link to whether a warning is executed.
 \end{itemize}
 
-This paper couples those effects in one product: warning success depends on both local weather and crew fatigue. The model runs on real Baltic--North Sea geography (Section~\ref{sec:model}). Routes are synthesised from bathymetry and Automatic Identification System (AIS)\wikifn{Automatic_identification_system} traffic density (Section~\ref{sec:routegen}). Avoidance uses Closest Point of Approach / Time to CPA (CPA/TCPA)\footnote{Standard radar/AIS encounter metrics: distance and time to the predicted closest point of approach. Overview: \url{https://en.wikipedia.org/wiki/Collision_avoidance}} and a simple give-way rule (Section~\ref{sec:avoidance}). Damage uses the DTU ship-collision model SIMCOL~\cite{lutzen2001} (Section~\ref{sec:consequence}); frequency is checked with IALA IWRAP~\cite{friishansen2008iwrap} (Section~\ref{sec:iwrap}); survivors enter a search-and-rescue (SAR)\wikifn{Search_and_rescue} chain (Section~\ref{sec:sar}). The engine is Rust on krABMaga~\cite{krabmaga2023}. Figure~\ref{fig:causal} summarises the causal chain.
+This paper couples those effects in one product: warning success depends on both local weather and crew fatigue. The model runs on real Baltic--North Sea geography (Section~\ref{sec:model}). Routes are synthesised from bathymetry and Automatic Identification System (AIS) traffic density (Section~\ref{sec:routegen}). Avoidance uses Closest Point of Approach / Time to CPA (CPA/TCPA) and a simple give-way rule (Section~\ref{sec:avoidance}). Damage uses the DTU ship-collision model SIMCOL~\cite{lutzen2001} (Section~\ref{sec:consequence}); frequency is checked with IALA IWRAP~\cite{friishansen2008iwrap} (Section~\ref{sec:iwrap}); survivors enter a search-and-rescue (SAR) chain (Section~\ref{sec:sar}). The engine is Rust on krABMaga~\cite{krabmaga2023}. Figure~\ref{fig:causal} summarises the causal chain.
 
 \begin{figure*}[t]
 \centering
@@ -130,12 +125,12 @@ This section defines the world, agents, routes, and weather field used by all me
 
 \subsection{Domain and Time}
 
-The domain is the Baltic and North Sea: latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E. An equirectangular\wikifn{Equirectangular_projection} map with a mid-latitude correction sets one field unit to one nautical mile\wikifn{Nautical_mile} at $\phi_0 = 58.25^\circ$:
+The domain is the Baltic and North Sea: latitude $\phi \in [50.5^\circ, 66.0^\circ]$\,N and longitude $\lambda \in [-5.0^\circ, 31.0^\circ]$\,E. An equirectangular map with a mid-latitude correction sets one field unit to one nautical mile at $\phi_0 = 58.25^\circ$:
 \begin{equation*}
   x = (\lambda - \lambda_{\min})\,k_{\text{lon}}, \qquad
   y = (\phi - \phi_{\min})\,k_{\text{lat}},
 \end{equation*}
-with $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$. East--west distortion at the box edges is about $6$--$10\,\%$ and is left uncorrected; distances inside the engine are Euclidean nautical miles. Coastline polygons from Natural Earth\wikifn{Natural_Earth} sit in an R-tree\wikifn{R-tree} for land and grounding tests. Bathymetry is used only offline for route planning (Section~\ref{sec:routegen}).
+with $k_{\text{lat}} = 60$\,nm/$^\circ$ and $k_{\text{lon}} = 60\cos\phi_0$. East--west distortion at the box edges is about $6$--$10\,\%$ and is left uncorrected; distances inside the engine are Euclidean nautical miles. Coastline polygons from Natural Earth sit in an R-tree for land and grounding tests. Bathymetry is used only offline for route planning (Section~\ref{sec:routegen}).
 
 Time steps are $\Delta t = 15$\,min ($0.25$\,h). The default run length is $T = 2880$ ticks ($30$ days). A wall-clock variable starts at 06:00\,UTC and drives the circadian fatigue term (Section~\ref{sec:fatigue}). Each run uses one seeded \texttt{SmallRng}, so the same seed yields identical KPI logs.
 
@@ -164,9 +159,9 @@ Routes are synthesised once (Section~\ref{sec:routegen}) and stored as \texttt{d
 \subsection{Route Generation}
 \label{sec:routegen}
 
-Traffic geometry is produced offline so experiments stay reproducible. Depth comes from the EMODnet DTM~\cite{emodnetbathymetry}. Lane attractiveness comes from EMODnet vessel-density maps~\cite{emodnetvesseldensity,silveira2013}. Both are fetched once via the OGC Web Coverage Service (WCS)\wikifn{Web_Coverage_Service} and stored as grids. Ports are a gazetteer of $42$ harbours snapped to navigable water.
+Traffic geometry is produced offline so experiments stay reproducible. Depth comes from the EMODnet DTM~\cite{emodnetbathymetry}. Lane attractiveness comes from EMODnet vessel-density maps~\cite{emodnetvesseldensity,silveira2013}. Both are fetched once via the OGC Web Coverage Service (WCS) and stored as grids. Ports are a gazetteer of $42$ harbours snapped to navigable water.
 
-Each class $c$ has draft $T_c$ and under-keel clearance ($\text{UKC}_c$)\wikifn{Under_keel_clearance}~\cite{pianc2014}. A cell of depth $h$ is navigable iff $h \ge T_c + \text{UKC}_c + m_s$ with buffer $m_s = 2$\,m (Table~\ref{tab:draft}). Deep-draft very large crude carriers (VLCCs)\wikifn{Very_large_crude_carrier} are excluded (Danish Straits).
+Each class $c$ has draft $T_c$ and under-keel clearance ($\text{UKC}_c$)~\cite{pianc2014}. A cell of depth $h$ is navigable iff $h \ge T_c + \text{UKC}_c + m_s$ with buffer $m_s = 2$\,m (Table~\ref{tab:draft}). Deep-draft very large crude carriers (VLCCs) are excluded (Danish Straits).
 
 \begin{table}[h]
 \centering
@@ -197,7 +192,7 @@ A $50\times50$ grid holds sea state $s$, visibility $v$, and wind $u$ in $[0,1]$
   W = \mathrm{clip}\left(\frac{w_s\,s + w_v\,(1-v) + w_u\,u}{w_s + w_v + w_u},\,0,\,1\right),
   \label{eq:W}
 \end{equation}
-with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, AR(1)\wikifn{Autoregressive_model} background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}).
+with $(w_s, w_v, w_u) = (1.0, 0.5, 0.8)$. Each ship samples the nearest cell. The field advances each tick through a calm/storm regime chain, Lagrangian storm cells, AR(1) background fields, overlays, coupling, and smoothing (parameters in Appendix~\ref{apx:constants}).
 
 Independently, Storm Corridor places a moving storm of radius $r_{\text{storm}}$ that drifts at $0.30$\,nm/tick along a fixed track (English Channel $\to$ North Sea $\to$ Skagerrak $\to$ Kattegat $\to$ Baltic $\to$ Gda\'nsk). Inside the zone, communication and (for non-A methods) speed are degraded.
 
@@ -322,7 +317,7 @@ with exponent $p=2$ by default. Source effect distances are micro-scale relative
 \label{sec:consequence}
 % ==================================================================
 
-A \textbf{hard collision} is logged when two \textsc{Active} ships close within $0.10$\,nm (${\approx}185$\,m), once per encounter (rising edge). Contacts within $1$\,nm of a port are ignored as harbour manoeuvring under vessel traffic services (VTS)\wikifn{Vessel_traffic_service}. Damage uses DTU SIMCOL (ship collision damage / survivability)~\cite{lutzen2001}.
+A \textbf{hard collision} is logged when two \textsc{Active} ships close within $0.10$\,nm (${\approx}185$\,m), once per encounter (rising edge). Contacts within $1$\,nm of a port are ignored as harbour manoeuvring under vessel traffic services (VTS). Damage uses DTU SIMCOL (ship collision damage / survivability)~\cite{lutzen2001}.
 
 Absorbed energy follows Pedersen and Zhang~\cite{pedersenzhang1998,lutzen2001} on the normal closing component:
 \begin{equation}
@@ -331,7 +326,7 @@ Absorbed energy follows Pedersen and Zhang~\cite{pedersenzhang1998,lutzen2001} o
   V_n = \big|(\mathbf{v}_b - \mathbf{v}_a)\cdot\hat{\mathbf{n}}\big|,
   \label{eq:eabs}
 \end{equation}
-with added-mass factors $m_{\text{sway}} = 0.85$ and $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. Minorsky's correlation~\cite{minorsky1959} links energy to damaged volume. Relative penetration $t/B$ drives a survival factor shaped like SOLAS Chapter~II-1 probabilistic damage stability~\cite{solas2020}\wikifn{International_Convention_for_the_Safety_of_Life_at_Sea}:
+with added-mass factors $m_{\text{sway}} = 0.85$ and $m_{\text{surge}} = 0.05$~\cite{lutzen2001}. Minorsky's correlation~\cite{minorsky1959} links energy to damaged volume. Relative penetration $t/B$ drives a survival factor shaped like SOLAS Chapter~II-1 probabilistic damage stability~\cite{solas2020}:
 \begin{equation}
   S_i =
   \begin{cases}
@@ -364,7 +359,7 @@ Near-parallel hits release little energy in Eq.~\ref{eq:eabs}; head-on and cross
 \label{sec:sar}
 % ==================================================================
 
-Foundering ($S_i < S^{\dagger}$) starts the liferaft chain, following International Aeronautical and Maritime Search and Rescue (IAMSAR) Manual practice~\cite{imosar2018}\wikifn{International_Aeronautical_and_Maritime_Search_and_Rescue_Manual}. A rescue asset leaves the nearest port after a mobilisation delay of $2$ ticks by default: helicopter ($80$\,kn) beyond $40$\,nm offshore, otherwise patrol ($25$\,kn). A second chain handles persons overboard from afloat ships (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the vessel state machine. Grounding only reverts position; it does not force evacuation.
+Foundering ($S_i < S^{\dagger}$) starts the liferaft chain, following International Aeronautical and Maritime Search and Rescue (IAMSAR) Manual practice~\cite{imosar2018}. A rescue asset leaves the nearest port after a mobilisation delay of $2$ ticks by default: helicopter ($80$\,kn) beyond $40$\,nm offshore, otherwise patrol ($25$\,kn). A second chain handles persons overboard from afloat ships (Section~\ref{sec:mob}). Figure~\ref{fig:fsm} shows the vessel state machine. Grounding only reverts position; it does not force evacuation.
 
 \begin{figure}[t]
 \centering
@@ -477,7 +472,7 @@ Overboard casualties (Eq.~\ref{eq:overboard}) form one incident of persons-in-wa
 \label{sec:iwrap}
 % ==================================================================
 
-Internal KPIs compare methods. To place traffic intensity on a known scale, the committed route network is analysed with IALA's IWRAP Mk~II waterway risk model~\cite{friishansen2008iwrap,lusic2015}\wikifn{International_Association_of_Marine_Aids_to_Navigation_and_Lighthouse_Authorities}:
+Internal KPIs compare methods. To place traffic intensity on a known scale, the committed route network is analysed with IALA's IWRAP Mk~II waterway risk model~\cite{friishansen2008iwrap,lusic2015}:
 \begin{equation*}
   N_c = N_a\,P_c.
 \end{equation*}
@@ -578,7 +573,7 @@ For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--
 \label{sec:implementation}
 % ==================================================================
 
-The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE)\wikifn{Server-sent_events}. Each finished run writes a JSONL tick log (every ten ticks), a manifest, and a SQLite\wikifn{SQLite} results row. A React workbench (deck.gl / MapLibre) replays completed runs.
+The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE). Each finished run writes a JSONL tick log (every ten ticks), a manifest, and a SQLite results row. A React workbench (deck.gl / MapLibre) replays completed runs.
 
 \subsection{Tick Ordering}
 \label{sec:loop}
@@ -687,12 +682,12 @@ Main limitations: synthesised routes trade some traffic realism for control; the
 
 Table~\ref{tab:constants} lists principal defaults (overridable in configuration).
 
-\begin{table}[t]
+\begin{table*}[t]
     \caption{Selected engine default constants.}
     \label{tab:constants}
     \centering
     \small
-    \begin{tabular}{@{}llp{0.42\columnwidth}@{}}
+    \begin{tabular}{@{}llp{0.7\columnwidth}@{}}
         \toprule
         Constant & Default & Role \\
         \midrule
@@ -728,7 +723,7 @@ Table~\ref{tab:constants} lists principal defaults (overridable in configuration
         $P_c$ (IWRAP) & $0.5\text{--}1.3{\times}10^{-4}$ & causation probability \\
         \bottomrule
     \end{tabular}
-\end{table}
+\end{table*}
 
 Weather-field process (Mixed preset): regime flips $p_{cs}=0.03$, $p_{sc}=0.08$; Calm/Storm reversion targets $(0.30,0.80,0.25)$ / $(0.72,0.30,0.75)$; up to $8$ storm cells; AR(1) coefficients $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0.07,0.06,0.07)$; gradient cap $0.12$. Calm and Stormy presets scale the flip rates.
 
