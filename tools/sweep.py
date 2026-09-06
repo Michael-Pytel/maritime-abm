@@ -63,6 +63,8 @@ import urllib.request
 API = "http://localhost:3000"
 
 # ── CONFIG ── edit this block ────────────────────────────────────────────────
+# Scout defaults (Tier-1). Promote @30 seeds for best scout point is archived as
+# outputs/promote_30seed_{summary,ranked}.csv (0.08 / 120 nm).
 SCENARIOS = ["CalmPassage", "StormCorridor"]
 METHODS = ["ProposedSystem", "BaselineA", "BaselineB"]
 N_SEEDS = 5
