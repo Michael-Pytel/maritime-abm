@@ -116,7 +116,7 @@ We test whether linking fatigue management to warning reliability reduces fatal 
 \noindent We use them for the following hypotheses:
 
 \begin{description}
-    \item[H1.] Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U, Cliff's $|\delta| \geq 0.2$).
+    \item[H1.] Proposed reduces the fatal-event rate (Table~\ref{tab:kpis}, KPI~1) by ${\geq}20\,\%$ versus Baseline~A ($p < 0.05$, Mann--Whitney U~\cite{mannwhitney1947}, Cliff's $|\delta| \geq 0.2$~\cite{cliff1993}).
     \item[H2.] Proposed improves post-incident survival (KPI~4) by ${\geq}15\,\%$ versus Baseline~A.
     \item[H3.] Under Storm Corridor, Proposed beats Baseline~B on the fatal-event rate ($p < 0.05$).
 \end{description}
@@ -571,7 +571,7 @@ Diagnostic counters (collision-type mix, MOB tallies) are logged but not entered
 
 \subsection{Statistical Analysis}
 
-For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--Whitney U test\wikifn{Mann-Whitney_U_test} with Cliff's $\delta$~\cite{cliff1993}. Multiplicity uses Holm--Bonferroni\wikifn{Holm-Bonferroni_method} step-down over the full battery. A result is \emph{significant} if $p_{\text{corr}} < 0.05$ and \emph{confirmed} if also $|\delta| \ge 0.2$. Pairs are (A vs Proposed), (B vs Proposed), and (A vs B). Seeds are matched across conditions.
+For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--Whitney U test~\cite{mannwhitney1947} with Cliff's $\delta$~\cite{cliff1993}. Multiplicity uses Holm's sequentially rejective Bonferroni procedure~\cite{holm1979} over the full battery. A result is \emph{significant} if $p_{\text{corr}} < 0.05$ and \emph{confirmed} if also $|\delta| \ge 0.2$. Pairs are (A vs Proposed), (B vs Proposed), and (A vs B). Seeds are matched across conditions.
 
 % ==================================================================
 \section{Implementation}
@@ -617,7 +617,7 @@ Baseline~A ignores this factor. Inside the storm zone an extra factor applies: $
 \label{sec:results}
 % ==================================================================
 
-The definitive batch ran $30$ seeds $\times$ $4$ scenarios $\times$ $3$ methods ($360$ runs). Confirmation requires $p_{\mathrm{corr}}<0.05$ and $|\delta|\ge 0.2$. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts.
+Confirmation requires $p_{\mathrm{corr}}<0.05$ and $|\delta|\ge 0.2$. Figure~\ref{fig:kpi-box} shows per-run KPI distributions; Figure~\ref{fig:hyp-delta} summarises effect sizes for the pre-registered contrasts.
 
 \subsection{Calibration and Storm Contrast}
 \label{sec:results-calib}
