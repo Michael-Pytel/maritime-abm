@@ -256,27 +256,27 @@ A short message log records the warning exchange; a $3$-tick cooldown prevents t
   \coordinate (Cpa) at (3.35,0.55);
 
   \draw[densely dashed, gray!55] (A) -- (B);
-  \node[lab, gray!70!black] at (2.05,2.95) {$\Delta\mathbf{p}$};
+  \node[lab, text=gray!70!black] at (2.05,2.95) {$\Delta\mathbf{p}$};
 
   \filldraw[blue!70!black] (A) circle (2.6pt);
-  \node[lab, blue!70!black, below=5pt] at (A) {$a$ (give-way)};
+  \node[lab, text=blue!70!black, below=5pt] at (A) {$a$ (give-way)};
   \draw[->, blue!70!black, thick] (-0.75,0.1) -- (-0.75,1.15);
-  \node[lab, blue!70!black] at (-1.25,0.62) {$\mathbf{v}_a$};
+  \node[lab, text=blue!70!black] at (-1.25,0.62) {$\mathbf{v}_a$};
 
   \filldraw[orange!85!black] (B) circle (2.6pt);
-  \node[lab, orange!85!black, above=4pt] at (B) {$b$ (stand-on)};
+  \node[lab, text=orange!85!black, above=4pt] at (B) {$b$ (stand-on)};
   \draw[->, orange!85!black, thick] (B) -- ++(-0.65,-1.0);
-  \node[lab, orange!85!black] at ($(B)+(-0.05,-1.35)$) {$\mathbf{v}_b$};
+  \node[lab, text=orange!85!black] at ($(B)+(-0.05,-1.35)$) {$\mathbf{v}_b$};
 
   \draw[->, green!40!black, very thick] (A) -- (Fwd);
-  \node[lab, green!40!black] at (0.55,0.95) {$L_f$};
+  \node[lab, text=green!40!black] at (0.55,0.95) {$L_f$};
   \draw[->, green!40!black, very thick] (Fwd) -- (W);
-  \node[lab, green!40!black] at (1.5,2.2) {$L_o$};
+  \node[lab, text=green!40!black] at (1.5,2.2) {$L_o$};
   \filldraw[green!40!black] (W) circle (2.8pt);
-  \node[lab, green!40!black, right=4pt] at (W) {$\mathbf{w}_{\text{avoid}}$};
+  \node[lab, text=green!40!black, right=4pt] at (W) {$\mathbf{w}_{\text{avoid}}$};
 
   \filldraw[red!75!black] (Cpa) circle (2.4pt);
-  \node[lab, red!75!black, right=4pt] at (Cpa) {$d_{\text{CPA}}$};
+  \node[lab, text=red!75!black, right=4pt] at (Cpa) {$d_{\text{CPA}}$};
 \end{tikzpicture}%
 }
 \caption{Give-way geometry. Ship $a$ steers to a temporary waypoint $\mathbf{w}_{\text{avoid}}$ placed $L_f$ ahead and $L_o$ to starboard (Eq.~\ref{eq:avoidwp}).}
