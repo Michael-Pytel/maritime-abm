@@ -65,7 +65,9 @@ pub async fn post_batch(
     Json(req): Json<BatchRequest>,
 ) -> Json<Value> {
     let n_seeds = req.n_seeds.unwrap_or(30).min(100);
-    let n_ticks = req.n_ticks.unwrap_or(2880);
+    // None → each scenario keeps its `SimConfig::for_scenario` horizon
+    // (Calm 14 d / Storm 4 d / Blind·Deep 7 d at 5 min/tick).
+    let n_ticks = req.n_ticks;
     let output_dir = req.output_dir.unwrap_or_else(|| "outputs".into());
 
     let scenarios: Vec<Scenario> = req.scenarios.as_deref().map_or_else(

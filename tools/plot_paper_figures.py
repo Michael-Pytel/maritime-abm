@@ -185,7 +185,7 @@ def fig_kpi_distributions(df: pd.DataFrame) -> None:
 
 
 def fig_prep_collisions(df: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2))
 
     sns.violinplot(
         data=df,
@@ -202,12 +202,9 @@ def fig_prep_collisions(df: pd.DataFrame) -> None:
     axes[0].set_title("Crew preparedness")
     axes[0].set_xlabel("")
     axes[0].set_ylabel(r"$P_{\mathrm{prep}}$")
-    axes[0].legend(
-        title=None,
-        labels=["A", "B", "P"],
-        frameon=False,
-        loc="lower left",
-    )
+    handles, _ = axes[0].get_legend_handles_labels()
+    if axes[0].legend_ is not None:
+        axes[0].legend_.remove()
 
     storm = df[df["scenario"] == "StormCorridor"]
     sns.stripplot(
@@ -238,6 +235,19 @@ def fig_prep_collisions(df: pd.DataFrame) -> None:
     axes[1].set_title("Storm Corridor collisions")
     axes[1].set_xlabel("Method")
     axes[1].set_ylabel("Collisions / 1k ship-hrs")
+
+    # Shared method legend above both panels (avoids covering violins or strips).
+    fig.legend(
+        handles[:3],
+        ["A", "B", "P"],
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.995),
+        columnspacing=1.2,
+        handlelength=1.2,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.90))
 
     path = OUT / "preparedness_collisions.png"
     fig.savefig(path, bbox_inches="tight")

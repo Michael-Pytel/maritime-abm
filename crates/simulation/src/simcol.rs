@@ -82,7 +82,9 @@ pub struct SimcolParams {
     pub survival_exponent: f64,
 
     /// Survival factor below which the struck vessel founders and enters the
-    /// SAR chain (transitions to `Evac`). ACCEPTED-SURROGATE.
+    /// SAR liferaft chain (`Evac`). Set below 0.5 so moderate damage more often
+    /// leaves the ship afloat — the only path that feeds the KPI fatality
+    /// (unrecovered MOB). ACCEPTED-SURROGATE.
     pub founder_threshold: f64,
 }
 
@@ -94,7 +96,7 @@ impl Default for SimcolParams {
             survival_knee_tb: 0.10,
             survival_full_loss_tb: 0.30,
             survival_exponent: 0.25,
-            founder_threshold: 0.50,
+            founder_threshold: 0.35,
         }
     }
 }

@@ -91,7 +91,7 @@ pub fn compute_cpa(
 /// Compass heading: 0 = north, 90 = east.  Field coords: x = east, y = north.
 #[must_use]
 pub fn vessel_velocity(heading_deg: f64, speed_kn: f64) -> (f64, f64) {
-    let nm_per_tick = speed_kn * 0.25; // 1 tick = 15 min = 0.25 h
+    let nm_per_tick = crate::time::nm_per_tick(speed_kn);
     let h = heading_deg.to_radians();
     (nm_per_tick * h.sin(), nm_per_tick * h.cos())
 }

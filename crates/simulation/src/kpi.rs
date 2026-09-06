@@ -84,12 +84,12 @@ impl KpiAccumulator {
 
     // ── Per-tick accumulation ────────────────────────────────────────────────
 
-    /// Accumulate ship-hours for every active vessel this tick (1 tick = 0.25 h).
+    /// Accumulate ship-hours for every active vessel this tick.
     pub fn record_tick(&mut self, vessels: &[VesselAgent]) {
-        const DT: f64 = 0.25;
+        let dt = crate::time::TICK_HOURS;
         for v in vessels {
             if v.state == VesselState::Active {
-                self.ship_hrs += DT;
+                self.ship_hrs += dt;
             }
         }
     }
@@ -241,11 +241,11 @@ impl KpiAccumulator {
             1.0 - self.fatal_crew as f64 / self.crew_exposed as f64
         };
 
-        // KPI 5: mean rescue Time-to-Arrival across dispatches (1 tick = 0.25 h).
+        // KPI 5: mean rescue Time-to-Arrival across dispatches.
         let avg_tta_hours = if self.rescue_count == 0 {
             0.0
         } else {
-            (self.rescue_tta_ticks_sum / self.rescue_count as f64) * 0.25
+            (self.rescue_tta_ticks_sum / self.rescue_count as f64) * crate::time::TICK_HOURS
         };
 
         let mean_p_prep = if self.p_prep_vessel_ticks == 0 {

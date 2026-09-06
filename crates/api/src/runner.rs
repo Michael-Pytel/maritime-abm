@@ -33,7 +33,7 @@ fn publish_status(tx: &broadcast::Sender<String>, batch: &Mutex<BatchState>) {
 )]
 pub fn spawn_batch(
     n_seeds: u32,
-    n_ticks: u32,
+    n_ticks: Option<u32>,
     ais_path: String,
     land_mask_path: String,
     output_dir: String,
@@ -110,7 +110,9 @@ pub fn spawn_batch(
             let mut cfg = SimConfig::for_scenario(scenario, method, seed);
             cfg.ais_path.clone_from(&ais_path);
             cfg.land_mask_path.clone_from(&land_mask_path);
-            cfg.n_ticks = n_ticks;
+            if let Some(n) = n_ticks {
+                cfg.n_ticks = n;
+            }
             cfg.snapshot_every_n_ticks = 0;
 
             // Apply the swept parameter override (deep-merge over the scenario
@@ -129,6 +131,7 @@ pub fn spawn_batch(
             }
 
             let n_vessels = cfg.n_vessels;
+            let run_n_ticks = cfg.n_ticks;
             let run_ais = cfg.ais_path.clone();
             let run_id = format!(
                 "{}_{}_{seed}",
@@ -159,7 +162,7 @@ pub fn spawn_batch(
                     "scenario": format!("{scenario:?}"),
                     "method": format!("{method:?}"),
                     "seed": seed,
-                    "n_ticks": n_ticks,
+                    "n_ticks": run_n_ticks,
                     "n_vessels": n_vessels,
                     "completed_at": completed_at,
                     "kpis": kpi,
@@ -177,7 +180,7 @@ pub fn spawn_batch(
                         scenario: format!("{scenario:?}"),
                         method: format!("{method:?}"),
                         seed,
-                        n_ticks,
+                        n_ticks: run_n_ticks,
                         n_vessels,
                         completed_at,
                         kpi: kpi.clone(),

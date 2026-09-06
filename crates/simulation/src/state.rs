@@ -369,7 +369,7 @@ impl SimState {
                     }
                 }
                 crate::sar::RescuePhase::Transiting => {
-                    let step_nm = speed_kn * 0.25;
+                    let step_nm = crate::time::nm_per_tick(speed_kn);
                     let dx = datum.0 - agent.position.0;
                     let dy = datum.1 - agent.position.1;
                     let d = (dx * dx + dy * dy).sqrt();
@@ -570,7 +570,7 @@ impl SimState {
                     }
                 }
                 crate::sar::RescuePhase::Transiting => {
-                    let step_nm = speed_kn * 0.25;
+                    let step_nm = crate::time::nm_per_tick(speed_kn);
                     let dx = datum.0 - agent.position.0;
                     let dy = datum.1 - agent.position.1;
                     let d = (dx * dx + dy * dy).sqrt();
@@ -750,7 +750,7 @@ impl SimState {
             let r = forcefield::steer(pos, heading, prev_yaw, &obstacles, prep, p);
 
             // Side-step to starboard, scaled by the realised turn over this tick.
-            let step_nm = self.vessels[i].speed_kn * 0.25;
+            let step_nm = crate::time::nm_per_tick(self.vessels[i].speed_kn);
             let s = forcefield::starboard(heading);
             let shift = step_nm * r.yaw.to_radians().sin();
             let new_pos = (pos.0 + s.0 * shift, pos.1 + s.1 * shift);
@@ -1090,7 +1090,7 @@ impl SimState {
             self.spawn_vessel(ais_records, self.step == 0);
         }
 
-        self.utc_hour = (self.utc_hour + 0.25) % 24.0;
+        self.utc_hour = (self.utc_hour + crate::time::TICK_HOURS) % 24.0;
         self.advance_storm();
 
         let snap_n = config.snapshot_every_n_ticks;

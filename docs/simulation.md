@@ -51,7 +51,7 @@ A **fatality is emergent**: unrecovered liferaft occupant or person-in-water whe
 | `evac_activation_rate` | Fraction of runs with evac | H1 |
 | `mean_p_prep` | Mean preparedness | H1 |
 
-Ship-hours: 0.25 h per **Active** vessel per tick. Batch rows also carry `iwrap_nc_per_year` (offline IWRAP stamp).
+Ship-hours: $1/12$ h per **Active** vessel per tick ($\Delta t=5$\,min). Batch rows also carry `iwrap_nc_per_year` (offline IWRAP stamp).
 
 ## Tick pipeline
 

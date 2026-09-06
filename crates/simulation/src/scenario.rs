@@ -144,13 +144,22 @@ impl Default for SimConfig {
             scenario: Scenario::default(),
             method: Method::default(),
             seed: 0,
-            n_vessels: 20,
-            n_crew_per_vessel: 10,
-            n_ticks: 2880,
-            // Hull-contact radius: a hard collision triggers at 2·r = 0.10 nm
-            // (~185 m, about one ship-length sum) rather than the old 0.30 nm.
-            collision_radius_nm: 0.05,
-            port_collision_exclusion_nm: 1.0,
+            // Concurrent underway default ≈ Geomatics Baltic AIS average
+            // (≈774 moving ships); scenario presets override below.
+            n_vessels: 750,
+            // Typical merchant minimum safe manning is ~15–25; we use 20 as a
+            // fleet-mean exposure count for overboard Bernoulli draws (IMO
+            // Res. A.1047(27) principles; cargo/tanker practice).
+            n_crew_per_vessel: 20,
+            // Default horizon = Calm exposure (14 d at 5 min/tick). Scenarios
+            // override: Storm ~4 d, Blind/Deep 7 d.
+            n_ticks: crate::time::ticks_for_days(14.0),
+            // Hull-contact radius at concurrent underway density: hard hit at
+            // 2·r = 0.024 nm (~45 m, beam-scale). Wider CPA avoidance (below)
+            // carries most COLREGs separation; the thin contact disc keeps
+            // Calm BaselineA near the 1.0–2.5 / 1k ship-hrs calibration band.
+            collision_radius_nm: 0.012,
+            port_collision_exclusion_nm: 2.5,
             follow_vicinity_nm: 3.0,
             follow_keep_distance_nm: 0.5,
             same_destination_nm: 5.0,
@@ -158,18 +167,20 @@ impl Default for SimConfig {
             sar: crate::sar::SarParams::default(),
             forcefield: crate::forcefield::ForceFieldParams::default(),
             sim_month: default_sim_month(),
-            port_dwell_min_ticks: 8,
-            port_dwell_max_ticks: 48,
-            initial_dwell_spread_ticks: 16,
+            // Port stay 2–12 h (was 8–48 ticks at 15 min).
+            port_dwell_min_ticks: crate::time::ticks_for_hours(2.0),
+            port_dwell_max_ticks: crate::time::ticks_for_hours(12.0),
+            initial_dwell_spread_ticks: crate::time::ticks_for_hours(4.0),
             port_dedup_radius_nm: 8.0,
-            // Perfect-weather COLREGS baseline: wide detection, generous berth,
-            // fast re-evaluation.  Weather simulation will degrade these.
-            collision_warn_radius_nm: 20.0,
-            collision_warn_cpa_nm: 5.0,
-            collision_warn_tta_max_ticks: 12,
-            avoidance_cooldown_ticks: 3,
-            avoidance_offset_nm: 5.0,
-            avoidance_forward_nm: 3.0,
+            // Perfect-weather COLREGS baseline: wide detection, generous berth.
+            // Tuned with N≈750 at 15 min; TTA/cooldown scaled to 5 min so the
+            // physical 4 h / 10 min gates are unchanged.
+            collision_warn_radius_nm: 25.0,
+            collision_warn_cpa_nm: 8.0,
+            collision_warn_tta_max_ticks: crate::time::ticks_for_hours(4.0),
+            avoidance_cooldown_ticks: crate::time::ticks_for_hours(10.0 / 60.0),
+            avoidance_offset_nm: 9.0,
+            avoidance_forward_nm: 5.0,
             comms_success_rate: 1.0,
             weather_preset: WeatherPreset::Mixed,
             // Storm zone — disabled by default; StormCorridor overrides below.
@@ -177,7 +188,8 @@ impl Default for SimConfig {
             storm_radius_nm: 120.0,
             storm_comms_success_rate: 0.30,
             storm_speed_factor: 0.70,
-            storm_drift_nm_per_tick: 0.30,
+            // Placeholder; StormCorridor sets a ~3-day basin transit.
+            storm_drift_nm_per_tick: crate::time::nm_per_tick(1.2),
             storm_track: vec![],
             ais_path: "data/ais_paths.json".into(),
             ports_path: "data/ports.json".into(),
@@ -212,23 +224,25 @@ impl SimConfig {
         };
         match scenario {
             Scenario::CalmPassage => {
-                cfg.n_vessels = 20;
+                // Concurrent underway fleet aligned with recent Baltic AIS:
+                // ~774 moving ships on average (Geomatics 2025). Fair-weather
+                // calibration arm over a 14-day exposure window (not a claim of
+                // 14 unbroken meteorological calm days).
+                cfg.n_vessels = 750;
+                cfg.n_ticks = crate::time::ticks_for_days(14.0);
                 cfg.weather_preset = WeatherPreset::Calm;
             }
             Scenario::StormCorridor => {
-                // Multi-seed probe (5 seeds × BaselineA, 2026-09): CalmPassage
-                // mean collision_per_1k_hrs ≈ 0.66, StormCorridor ≈ 1.58 →
-                // storm/calm ratio ≈ 2.39× (target ~2.7×). Defaults kept; no
-                // retune required under the §12 contrast gate (≥2.0×).
-                cfg.n_vessels = 25;
+                // Event-scale storm stress: ~4 simulated days with a translating
+                // cell that crosses Channel→Gdańsk (~860 nm) in ≈3 days ≈12 kn.
+                cfg.n_vessels = 900;
+                cfg.n_ticks = crate::time::ticks_for_days(4.0);
                 cfg.weather_preset = WeatherPreset::Stormy;
                 cfg.storm_enabled = true;
-                cfg.storm_radius_nm = 160.0; // wider zone
-                cfg.storm_comms_success_rate = 0.08; // 92 % of warnings lost — near-blackout
-                cfg.storm_speed_factor = 0.45; // vessels crawl at 45 % speed
-                                               // 0.30 nm/tick ≈ 1.2 kn.  Total track ≈ 860 nm → ~2870 ticks,
-                                               // which fills a standard 2880-tick run almost exactly.
-                cfg.storm_drift_nm_per_tick = 0.30;
+                cfg.storm_radius_nm = 160.0;
+                cfg.storm_comms_success_rate = 0.08;
+                cfg.storm_speed_factor = 0.45;
+                cfg.storm_drift_nm_per_tick = crate::time::nm_per_tick(12.0);
                 // Track: English Channel → Southern North Sea → Skagerrak
                 //        → Kattegat → Western Baltic → Gdańsk
                 cfg.storm_track = vec![
@@ -244,21 +258,20 @@ impl SimConfig {
                 // Coordination is degraded everywhere, not just inside a storm:
                 // away from dense, well-covered shipping lanes the shore VHF /
                 // AIS picture is patchy, so warning exchanges frequently fail.
-                cfg.n_vessels = 25;
-                // Fleet-wide baseline comms reliability (no storm zone here).
+                cfg.n_vessels = 900;
+                cfg.n_ticks = crate::time::ticks_for_days(7.0);
                 cfg.comms_success_rate = 0.55;
-                // Degraded manoeuvring confidence → tighter avoidance berth.
                 cfg.avoidance_offset_nm = 3.0;
             }
             Scenario::DeepWaterRescue => {
-                // A sparse fleet operating far offshore: the nearest SAR base is
-                // distant, so every rescue is a long transit. We model the long
-                // transit by slowing the assets and lengthening mobilisation,
-                // which stresses the SAR chain against the fixed survival window.
-                cfg.n_vessels = 15;
-                cfg.sar.mobilisation_delay_ticks = 4; // distant readiness, was 2
-                cfg.sar.helicopter_speed_kn = 55.0; // long ferry leg, was 80
-                cfg.sar.patrol_speed_kn = 16.0; // far cutter station, was 25
+                // Week-long offshore SAR stress: distant bases, winter Ashrafi D,
+                // slowed assets vs the fixed MOB survival window.
+                cfg.n_vessels = 500;
+                cfg.n_ticks = crate::time::ticks_for_days(7.0);
+                cfg.sim_month = 1; // January → Ashrafi Group D
+                cfg.sar.mobilisation_delay_ticks = crate::time::ticks_for_hours(1.0);
+                cfg.sar.helicopter_speed_kn = 55.0;
+                cfg.sar.patrol_speed_kn = 16.0;
             }
         }
 

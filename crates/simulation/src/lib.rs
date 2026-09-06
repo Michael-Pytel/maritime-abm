@@ -9,5 +9,6 @@ pub mod sar;
 pub mod scenario;
 pub mod simcol;
 pub mod state;
+pub mod time;
 pub mod vessel;
 pub mod weather;

@@ -24,9 +24,11 @@ const N: usize = GRID_CELLS * GRID_CELLS;
 
 // ── AR(1) channel parameters ───────────────────────────────────────────────
 
-const RHO_S: f64 = 0.95; // sea-state persistence
-const RHO_V: f64 = 0.90; // visibility persistence
-const RHO_U: f64 = 0.93; // wind persistence
+// Per-tick AR(1) coefficients at Δt = 5 min, matched to the former 15-min
+// persistence via ρ_5 = ρ_15^(1/3) so physical correlation time is unchanged.
+const RHO_S: f64 = 0.983_047; // ≈ 0.95^(1/3)
+const RHO_V: f64 = 0.965_489; // ≈ 0.90^(1/3)
+const RHO_U: f64 = 0.976_054; // ≈ 0.93^(1/3)
 
 // Calm-regime mean-reversion targets
 const MU_S_CALM: f64 = 0.30; // moderate sea
@@ -44,9 +46,10 @@ const SIGMA_U: f64 = 0.07;
 
 // ── Regime transition probabilities ───────────────────────────────────────
 
-// Default (mixed) preset
-const P_CS_DEFAULT: f64 = 0.03; // calm → storm per tick
-const P_SC_DEFAULT: f64 = 0.08; // storm → calm per tick
+// Default (mixed) preset — per 5-min tick, ≈⅓ of the former 15-min rates so
+// expected regime sojourn times (hours) stay comparable.
+const P_CS_DEFAULT: f64 = 0.01; // calm → storm per tick
+const P_SC_DEFAULT: f64 = 0.027; // storm → calm per tick
 
 // ── Storm cell parameters ──────────────────────────────────────────────────
 

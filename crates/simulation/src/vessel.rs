@@ -5,21 +5,22 @@ use serde::Serialize;
 
 // ── Fatigue constants ─────────────────────────────────────────────────────────
 
-/// Base fatigue accumulation per tick (15 min) while actively sailing.
-/// ~0.144 over 24 h in completely calm conditions.
-const FATIGUE_BASE_RATE: f64 = 0.0015;
+/// Base fatigue accumulation per tick (5 min) while actively sailing.
+/// Scaled from the 15-min calibration so hourly build is unchanged
+/// (~0.144 over 24 h in completely calm conditions).
+const FATIGUE_BASE_RATE: f64 = 0.0005;
 
 /// Additional fatigue per unit of weather hazard W, per tick.
 /// At W=1 this adds 0.38 over 24 h on top of the base.
-const FATIGUE_WEATHER_RATE: f64 = 0.0040;
+const FATIGUE_WEATHER_RATE: f64 = 0.0040 / 3.0;
 
 /// Peak amplitude of the circadian fatigue bonus (at ~03:00 UTC).
 /// Adds at most 0.077 over 24 h.
-const FATIGUE_CIRCADIAN_PEAK: f64 = 0.0008;
+const FATIGUE_CIRCADIAN_PEAK: f64 = 0.0008 / 3.0;
 
 /// Fatigue recovered per tick while docked.
-/// Full recovery (0 → 1.0) in ~40 ticks ≈ 10 h in port.
-const FATIGUE_RECOVERY_RATE: f64 = 0.025;
+/// Full recovery (0 → 1.0) in ~10 h in port.
+const FATIGUE_RECOVERY_RATE: f64 = 0.025 / 3.0;
 
 /// Fatigue level above which the crew comms rate starts to degrade.
 const FATIGUE_COMMS_THRESHOLD: f64 = 0.40;
@@ -257,12 +258,12 @@ impl VesselAgent {
         }
 
         // ── Move toward target ────────────────────────────────────────────
-        // 1 tick = 15 min = 0.25 h. A leader being followed caps the speed so
+        // 1 tick = 5 min. A leader being followed caps the speed so
         // the vessel matches the leader and does not overtake.
         let eff_speed = self
             .follow_speed_cap
             .map_or(self.speed_kn, |cap| self.speed_kn.min(cap));
-        let speed_nm_per_tick = eff_speed * 0.25;
+        let speed_nm_per_tick = crate::time::nm_per_tick(eff_speed);
         let full_step = speed_nm_per_tick.min(dist);
 
         // Sub-step halving against land mask (up to 5 halvings).
@@ -480,7 +481,7 @@ mod tests {
             heading_deg: 0.0,
             speed_kn: 15.0,
             state: VesselState::Active,
-            n_crew: 10,
+            n_crew: 20,
             dock_until_tick: None,
             last_port_id: None,
             avoidance_wps: vec![],

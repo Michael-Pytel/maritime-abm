@@ -166,18 +166,20 @@ pub struct SarParams {
 impl Default for SarParams {
     fn default() -> Self {
         Self {
-            mobilisation_delay_ticks: 2,
+            mobilisation_delay_ticks: crate::time::ticks_for_hours(0.5),
             helicopter_speed_kn: 80.0,
             patrol_speed_kn: 25.0,
             helicopter_min_datum_nm: 40.0,
-            liferaft_survival_ticks: 96, // 24 h at 15 min/tick
+            liferaft_survival_ticks: crate::time::ticks_for_hours(24.0),
             arrival_radius_nm: 1.0,
             searchers: 1,
             sweep_width_nm: 5.0,
             initial_uncertainty_nm: 2.0,
-            drift_speed_nm_per_tick: 0.2, // ≈ 0.8 kn current
+            // ≈ 0.8 kn current at 5 min/tick
+            drift_speed_nm_per_tick: crate::time::nm_per_tick(0.8),
             drift_bearing_deg: 45.0,
-            mob_survival_ticks: 12, // ≈ 3 h cold-water immersion
+            // ≈ 1.5 h — IAMSAR cold-water mid/lower band
+            mob_survival_ticks: crate::time::ticks_for_hours(1.5),
             mob_scatter_nm: 0.5,
         }
     }
@@ -198,7 +200,7 @@ pub fn detection_prob_tick(p: &SarParams, searcher_speed_kn: f64, elapsed_ticks:
     let tau = elapsed_ticks as f64;
     let radius = p.initial_uncertainty_nm + p.drift_speed_nm_per_tick * tau;
     let area = (std::f64::consts::PI * radius * radius).max(1e-9);
-    let vs_nm = searcher_speed_kn * 0.25; // nm covered per tick
+    let vs_nm = crate::time::nm_per_tick(searcher_speed_kn);
     let coverage = f64::from(p.searchers) * p.sweep_width_nm * vs_nm / area;
     1.0 - (-coverage).exp()
 }

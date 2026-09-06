@@ -15,6 +15,6 @@ Accredited sub-model PDFs (when present) live in gitignored `citings/`. Full cit
 | **Karatas (2018)** | Man-overboard search framing |
 | **`W`** | Local weather hazard ∈ [0,1] |
 | **`P_prep`** | Crew preparedness = awareness × fatigue — scales comms success |
-| **tick** | 15 simulated minutes; standard run = 2880 ticks = 30 days |
-| **ship-hour** | 0.25 h per Active vessel per tick — KPI denominator |
+| **tick** | 5 simulated minutes; scenario horizons: Calm 14 d, Storm ≈4 d, Blind/Deep 7 d |
+| **ship-hour** | 1/12 h per Active vessel per tick — KPI denominator |
 | **`N_c`** | IWRAP expected collisions per year on the route network |
