@@ -63,8 +63,9 @@ import urllib.request
 API = "http://localhost:3000"
 
 # ── CONFIG ── edit this block ────────────────────────────────────────────────
-# Scout defaults (Tier-1). Promote @30 seeds for best scout point is archived as
-# outputs/promote_30seed_{summary,ranked}.csv (0.08 / 120 nm).
+# Scout defaults (Tier-1). Archives:
+#   outputs/promote_30seed_{summary,ranked}.csv  — best Tier-1 @ 30 seeds (0.08/120)
+#   outputs/tier2_sweep_{summary,ranked}.csv     — route density VARIANTS @ 5 seeds
 SCENARIOS = ["CalmPassage", "StormCorridor"]
 METHODS = ["ProposedSystem", "BaselineA", "BaselineB"]
 N_SEEDS = 5
@@ -79,8 +80,9 @@ SWEEP: dict[str, list] = {
 # Coupled override sets (zipped axes). When non-empty, each entry is one sweep
 # point and SWEEP is ignored. Example Tier-2:
 # VARIANTS = [
-#     {"ais_path": "/tmp/routes_sparse.json", "ports_path": "/tmp/ports.json"},
-#     {"ais_path": "/tmp/routes_dense.json",  "ports_path": "/tmp/ports.json"},
+#     {"ais_path": "outputs/tier2/routes_sparse.json", "ports_path": "outputs/tier2/ports.json"},
+#     {"ais_path": "outputs/tier2/routes_baseline.json", "ports_path": "outputs/tier2/ports_baseline.json"},
+#     {"ais_path": "outputs/tier2/routes_dense.json", "ports_path": "outputs/tier2/ports.json"},
 # ]
 VARIANTS: list[dict] = []
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,6 +142,9 @@ def build_override(combo: dict) -> dict:
 
 def derive_label(combo: dict) -> str:
     """Mirrors the server's auto-label for dry-run display."""
+    if "ais_path" in combo:
+        base = os.path.basename(str(combo["ais_path"])).removesuffix(".json")
+        return base
     parts = [f"{k}={v}" for k, v in combo.items()]
     return "_".join(parts)[:120] if parts else "default"
 

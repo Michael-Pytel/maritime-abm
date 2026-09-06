@@ -41,6 +41,19 @@ gen --n-cargo 50 --out /tmp/routes_dense.json  --ports-out /tmp/ports.json
 
 **`VARIANTS`:** when non-empty, each dict is one coupled override set (zipped route+ports); cartesian `SWEEP` is ignored.
 
+Example (after generating networks under `outputs/tier2/`):
+
+```python
+VARIANTS = [
+    {"ais_path": "outputs/tier2/routes_sparse.json", "ports_path": "outputs/tier2/ports.json"},
+    {"ais_path": "outputs/tier2/routes_baseline.json", "ports_path": "outputs/tier2/ports_baseline.json"},
+    {"ais_path": "outputs/tier2/routes_dense.json", "ports_path": "outputs/tier2/ports.json"},
+]
+SWEEP = {}
+```
+
+Artifacts from the last Tier-2 run: `outputs/tier2_sweep_{summary,ranked}.csv`.
+
 Router CLI weights: `--w-lane`, `--w-shallow`, `--jitter`.
 
 ## Ranking
