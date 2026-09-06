@@ -19,9 +19,9 @@
 //! The fixed module consts below are the *accredited physical* constants
 //! (added-mass coefficients, Minorsky correlation), verified against Lützen
 //! (2001) Ch. 3 and Minorsky (1959). The tunable fields in [`SimcolParams`]
-//! marked `TODO-VERIFY` are the *surrogate* calibration knobs — the penetration
-//! geometry and the SOLAS-shaped survival knee — which the source does not pin
-//! to closed-form constants at this fidelity.
+//! marked `ACCEPTED-SURROGATE` are deliberate SOLAS-II-1-shaped calibration
+//! knobs — the engine does not resolve per-ship residual-stability curves (see
+//! report Limitations). Defaults are retained as stated modelling assumptions.
 
 use serde::{Deserialize, Serialize};
 
@@ -64,24 +64,25 @@ pub struct SimcolParams {
 
     /// Effective smeared steel thickness of the struck side (m), converting the
     /// Minorsky resistance volume into a penetration depth via
-    /// `t = R_T / (ℓ · τ)`. TODO-VERIFY — structural surrogate (representative
-    /// merchant value); Lützen reports damage as fitted distributions, not a τ.
+    /// `t = R_T / (ℓ · τ)`. ACCEPTED-SURROGATE — structural stand-in
+    /// (representative merchant value); Lützen reports damage as fitted
+    /// distributions, not a τ.
     pub effective_steel_thickness_m: f64,
 
     /// Relative penetration `t/B` at/below which the ship survives intact
-    /// (`S_i = 1`). TODO-VERIFY — SOLAS-shaped survival-surrogate knee.
+    /// (`S_i = 1`). ACCEPTED-SURROGATE — SOLAS-shaped survival knee.
     pub survival_knee_tb: f64,
 
     /// Relative penetration `t/B` at/above which survival reaches 0 (certain
-    /// foundering). TODO-VERIFY — SOLAS-shaped survival surrogate.
+    /// foundering). ACCEPTED-SURROGATE — SOLAS-shaped survival curve.
     pub survival_full_loss_tb: f64,
 
     /// Exponent shaping the survival curve between knee and full loss.
-    /// SOLAS II-1 uses 0.25. TODO-VERIFY.
+    /// SOLAS II-1 uses 0.25. ACCEPTED-SURROGATE.
     pub survival_exponent: f64,
 
     /// Survival factor below which the struck vessel founders and enters the
-    /// SAR chain (transitions to `Evac`). TODO-VERIFY.
+    /// SAR chain (transitions to `Evac`). ACCEPTED-SURROGATE.
     pub founder_threshold: f64,
 }
 

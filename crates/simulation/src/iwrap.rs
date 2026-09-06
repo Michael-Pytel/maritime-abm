@@ -249,6 +249,82 @@ pub fn analyze(legs: &[WaterwayLeg], period_h: f64) -> IwrapReport {
     }
 }
 
+/// Fairway width (nm) used by the offline network estimator.
+const DEFAULT_FAIRWAY_WIDTH_NM: f64 = 2.0;
+/// Metres in one nautical mile.
+const METERS_PER_NM: f64 = 1852.0;
+/// Default analysis horizon matching a 30-day run (scaled to per-year by [`analyze`]).
+pub const DEFAULT_PERIOD_H: f64 = 720.0;
+
+/// Build a multi-class leg network from an AIS routes JSON file and estimate
+/// IWRAP `N_c` (collisions/year). Used by the offline `iwrap` bin and by the
+/// batch runner to stamp each result row.
+///
+/// `speed_scale` multiplies nominal class speeds (e.g. `0.78` for weather-aware
+/// slow-down under the Proposed System).
+pub fn estimate_nc_from_ais_path(
+    ais_path: &str,
+    fleet: u32,
+    speed_scale: f64,
+) -> anyhow::Result<f64> {
+    use crate::ais;
+    use crate::vessel::{ship_dimensions, typical_speed_kn};
+
+    let records = ais::load_ais(ais_path)?;
+    let route_count = records
+        .iter()
+        .filter(|r| r.waypoints.len() >= 2)
+        .count()
+        .max(1);
+    #[allow(clippy::cast_precision_loss)]
+    let vessels_per_route = f64::from(fleet) / route_count as f64;
+
+    let mut legs: Vec<WaterwayLeg> = Vec::new();
+    for rec in &records {
+        if rec.waypoints.len() < 2 {
+            continue;
+        }
+        let dims = ship_dimensions(&rec.vessel_type);
+        let beam_nm = dims.beam_m / METERS_PER_NM;
+        let length_nm = dims.length_m / METERS_PER_NM;
+        let speed_kn = typical_speed_kn(&rec.vessel_type, 0.5) * speed_scale;
+
+        let pts: Vec<(f64, f64)> = rec
+            .waypoints
+            .iter()
+            .map(|w| ais::lat_lon_to_field(w.lat, w.lon))
+            .collect();
+        let total_len: f64 = pts
+            .windows(2)
+            .map(|w| {
+                let dx = w[1].0 - w[0].0;
+                let dy = w[1].1 - w[0].1;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .sum();
+        if total_len <= 0.0 || speed_kn <= 0.0 {
+            continue;
+        }
+        let flow_per_h = vessels_per_route * speed_kn / (2.0 * total_len);
+        let flow = ShipFlow {
+            flow_per_h,
+            beam_nm,
+            length_nm,
+            speed_kn,
+        };
+        for w in pts.windows(2) {
+            legs.push(WaterwayLeg {
+                a: w[0],
+                b: w[1],
+                width_nm: DEFAULT_FAIRWAY_WIDTH_NM,
+                flows: vec![flow],
+            });
+        }
+    }
+
+    Ok(analyze(&legs, DEFAULT_PERIOD_H).n_c_per_year)
+}
+
 /// Build a single-class waterway network from hand-authored routes.
 ///
 /// Each route polyline becomes a chain of legs. The fleet is shared evenly over

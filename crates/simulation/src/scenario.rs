@@ -216,6 +216,10 @@ impl SimConfig {
                 cfg.weather_preset = WeatherPreset::Calm;
             }
             Scenario::StormCorridor => {
+                // Multi-seed probe (5 seeds × BaselineA, 2026-09): CalmPassage
+                // mean collision_per_1k_hrs ≈ 0.66, StormCorridor ≈ 1.58 →
+                // storm/calm ratio ≈ 2.39× (target ~2.7×). Defaults kept; no
+                // retune required under the §12 contrast gate (≥2.0×).
                 cfg.n_vessels = 25;
                 cfg.weather_preset = WeatherPreset::Stormy;
                 cfg.storm_enabled = true;
@@ -274,11 +278,11 @@ impl SimConfig {
                 // made A artificially collision-free and inverted the intended
                 // H1/H3 ordering (Proposed should beat A under the storm).
                 //
-                // The only thing A lacks here is the *behavioural* mitigation the
-                // weather-aware methods apply: it does not slow down in the storm
-                // (no hazard-gated speed reduction → more encounters, higher
-                // closing energy), so storm_speed_factor stays at 1.0 while
-                // storm_comms_success_rate keeps its degraded scenario value.
+                // Revisited after the depth+lane route rebase (multi-seed probe,
+                // Storm/Calm ≈ 2.39×, Proposed storm collisions < BaselineA):
+                // keep honest environmental storm-comms loss. The only thing A
+                // lacks is behavioural mitigation — it does not slow in the
+                // storm (storm_speed_factor stays 1.0).
                 cfg.storm_speed_factor = 1.0;
             }
             Method::BaselineB | Method::ProposedSystem => {
