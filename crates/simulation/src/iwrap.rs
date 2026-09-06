@@ -262,6 +262,10 @@ pub const DEFAULT_PERIOD_H: f64 = 720.0;
 ///
 /// `speed_scale` multiplies nominal class speeds (e.g. `0.78` for weather-aware
 /// slow-down under the Proposed System).
+///
+/// # Errors
+///
+/// Returns an error if the AIS routes file cannot be read or parsed.
 pub fn estimate_nc_from_ais_path(
     ais_path: &str,
     fleet: u32,

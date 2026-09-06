@@ -39,7 +39,7 @@ pub const NM_PER_DEG_LAT: f64 = 60.0;
 #[inline]
 #[must_use]
 pub fn lat_mid() -> f64 {
-    0.5 * (LAT_MIN + LAT_MAX)
+    f64::midpoint(LAT_MIN, LAT_MAX)
 }
 
 /// Returns the nautical-miles-per-degree-longitude scale factor at the
