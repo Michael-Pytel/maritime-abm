@@ -8,26 +8,8 @@ import type {
   RescueAgentSnapshot, WreckMarker, MobPersonSnapshot, MobAgentSnapshot,
 } from "../types";
 
-// ── MarineTraffic-style dark basemap (keyless CARTO raster) ──────────────────
-const DARK_STYLE = {
-  version: 8 as const,
-  sources: {
-    carto: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution: "© OpenStreetMap © CARTO",
-    },
-  },
-  layers: [
-    { id: "bg", type: "background" as const, paint: { "background-color": "#0a1420" } },
-    { id: "carto", type: "raster" as const, source: "carto" },
-  ],
-};
+// Keyless dark vector style (OpenFreeMap). Avoids raster CDN watermark tiles.
+const DARK_STYLE = "https://tiles.openfreemap.org/styles/dark";
 
 // ── Simulated domain (matches crates/simulation/src/ais.rs bbox) ──────────────
 const DOMAIN = { lonMin: -5.0, latMin: 50.5, lonMax: 31.0, latMax: 66.0 };
@@ -502,7 +484,7 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
         getTooltip={getTooltip}
         style={{ position: "absolute", inset: "0" }}
       >
-        <Map reuseMaps mapStyle={DARK_STYLE as never} />
+        <Map reuseMaps mapStyle={DARK_STYLE} />
       </DeckGL>
       {showLegend && <MapLegend />}
     </div>

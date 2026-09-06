@@ -1,6 +1,6 @@
 # Frontend (`frontend/`)
 
-React 19 + Vite + TypeScript. Map = **deck.gl** over a keyless CARTO-dark **MapLibre** basemap; charts = **recharts**. Batch-first playback workbench (no Live tab).
+React 19 + Vite + TypeScript. Map = **deck.gl** over a keyless OpenFreeMap-dark **MapLibre** basemap; charts = **recharts**. Batch-first playback workbench (no Live tab).
 
 ## Shell
 
