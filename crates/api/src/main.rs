@@ -2,7 +2,6 @@ mod db;
 mod routes;
 mod runner;
 mod stats;
-mod ws;
 
 use axum::{
     routing::{get, post},
@@ -31,11 +30,9 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(routes::get_health))
-        .route("/sim/start", post(routes::post_start))
-        .route("/sim/stop", post(routes::post_stop))
-        .route("/sim/kpi", get(routes::get_kpi))
         .route("/sim/batch", post(routes::post_batch))
         .route("/sim/batch/status", get(routes::get_batch_status))
+        .route("/sim/batch/events", get(routes::get_batch_events))
         .route("/sim/batch/results", get(routes::get_batch_results))
         .route("/sim/batch/stats", get(routes::get_batch_stats))
         .route("/sim/batch/hypothesis", get(routes::get_batch_hypothesis))
@@ -44,7 +41,6 @@ async fn main() {
         .route("/sim/runs", get(routes::get_runs))
         .route("/sim/runs/{run_id}/log", get(routes::get_run_log))
         .route("/sim/runs/{run_id}/manifest", get(routes::get_run_manifest))
-        .route("/ws", get(ws::ws_handler))
         .with_state(state)
         .layer(cors);
 

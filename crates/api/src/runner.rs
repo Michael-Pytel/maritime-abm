@@ -1,54 +1,29 @@
-use anyhow::Result;
 use rayon::prelude::*;
 use simulation::{
-    kpi::KpiSnapshot,
+    iwrap,
     scenario::{Method, Scenario, SimConfig},
     state::SimStateWrapper,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::broadcast;
 
 use crate::db::{self, RunRecord};
 use crate::stats::{BatchResult, BatchState};
 
-pub struct SimHandle {
-    pub snapshot_rx: broadcast::Receiver<String>,
-    pub stop_tx: watch::Sender<bool>,
-    pub latest_kpi: Arc<Mutex<KpiSnapshot>>,
+/// Method-dependent speed scale for the offline IWRAP `N_c` stamp.
+fn iwrap_speed_scale(method: Method) -> f64 {
+    match method {
+        Method::BaselineA => 1.0,
+        Method::BaselineB => 0.85,
+        Method::ProposedSystem => 0.78,
+    }
 }
 
-pub fn spawn_sim(config: SimConfig) -> Result<SimHandle> {
-    let (snapshot_tx, snapshot_rx) = broadcast::channel::<String>(256);
-    let (stop_tx, stop_rx) = watch::channel(false);
-
-    let latest_kpi: Arc<Mutex<KpiSnapshot>> = Arc::new(Mutex::new(KpiSnapshot {
-        step: 0,
-        fatal_per_1k_hrs: 0.0,
-        collision_per_1k_hrs: 0.0,
-        survival_ratio: 1.0,
-        avg_tta_hours: 0.0,
-        evac_activation_rate: 0.0,
-        mean_p_prep: 0.0,
-    }));
-    let kpi_clone = Arc::clone(&latest_kpi);
-
-    let mut wrapper = SimStateWrapper::new(config)?;
-    wrapper.inner.snapshot_tx = Some(snapshot_tx);
-    wrapper.inner.stop_rx = Some(stop_rx);
-
-    tokio::task::spawn_blocking(move || {
-        wrapper.run_blocking();
-        if let Ok(mut lock) = kpi_clone.lock() {
-            *lock = wrapper.inner.kpi_snapshot();
-        }
-    });
-
-    Ok(SimHandle {
-        snapshot_rx,
-        stop_tx,
-        latest_kpi,
-    })
+fn publish_status(tx: &broadcast::Sender<String>, batch: &Mutex<BatchState>) {
+    if let Ok(state) = batch.lock() {
+        let _ = tx.send(state.status_json().to_string());
+    }
 }
 
 #[allow(
@@ -70,6 +45,7 @@ pub fn spawn_batch(
     config_override: serde_json::Value,
     // Auto-derived sweep-point label stored with each run.
     label: String,
+    status_tx: broadcast::Sender<String>,
 ) -> Arc<Mutex<BatchState>> {
     let seeds: Vec<u64> = (1..=u64::from(n_seeds)).collect();
 
@@ -96,6 +72,7 @@ pub fn spawn_batch(
         results: Vec::new(),
     }));
     let batch2 = Arc::clone(&batch);
+    publish_status(&status_tx, &batch2);
 
     let params_json = serde_json::to_string(&config_override).unwrap_or_else(|_| "{}".into());
 
@@ -117,7 +94,10 @@ pub fn spawn_batch(
         // the retained store. Recreated each batch so it never mixes sweeps.
         let csv_path = format!("{output_dir}/summary.csv");
         if let Ok(mut f) = std::fs::File::create(&csv_path) {
-            let _ = writeln!(f, "scenario,method,seed,collision_per_1k_hrs");
+            let _ = writeln!(
+                f,
+                "scenario,method,seed,collision_per_1k_hrs,iwrap_nc_per_year"
+            );
         }
 
         let csv_mutex: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
@@ -131,7 +111,7 @@ pub fn spawn_batch(
             cfg.ais_path.clone_from(&ais_path);
             cfg.land_mask_path.clone_from(&land_mask_path);
             cfg.n_ticks = n_ticks;
-            cfg.snapshot_every_n_ticks = 0; // no live WS broadcasting during batch
+            cfg.snapshot_every_n_ticks = 0;
 
             // Apply the swept parameter override (deep-merge over the scenario
             // defaults), then re-pin the experiment identity so it can't drift.
@@ -145,10 +125,11 @@ pub fn spawn_batch(
                 cfg.scenario = scenario;
                 cfg.method = method;
                 cfg.seed = seed;
-                cfg.compute_field_units(); // recompute #[serde(skip)] field units
+                cfg.compute_field_units();
             }
 
             let n_vessels = cfg.n_vessels;
+            let run_ais = cfg.ais_path.clone();
             let run_id = format!(
                 "{}_{}_{seed}",
                 format!("{scenario:?}").to_lowercase(),
@@ -157,11 +138,18 @@ pub fn spawn_batch(
 
             let log_path = format!("{output_dir}/{run_id}.jsonl");
             cfg.log_path = Some(log_path.clone());
-            cfg.log_every_n_ticks = 10; // one frame every 10 ticks keeps files ~2 MB
+            cfg.log_every_n_ticks = 10;
 
             if let Ok(mut wrapper) = SimStateWrapper::new(cfg) {
                 wrapper.run_blocking();
                 let kpi = wrapper.inner.kpi_snapshot();
+
+                let iwrap_nc = iwrap::estimate_nc_from_ais_path(
+                    &run_ais,
+                    n_vessels,
+                    iwrap_speed_scale(method),
+                )
+                .unwrap_or(0.0);
 
                 let completed_at = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -175,13 +163,12 @@ pub fn spawn_batch(
                     "n_vessels": n_vessels,
                     "completed_at": completed_at,
                     "kpis": kpi,
+                    "iwrap_nc_per_year": iwrap_nc,
                 });
                 if let Ok(content) = serde_json::to_string_pretty(&manifest) {
                     std::fs::write(format!("{output_dir}/{run_id}_manifest.json"), content).ok();
                 }
 
-                // Primary store: one durable row per run, keyed by batch_id so
-                // results/stats never mix runs across batches.
                 if let Some(conn) = &conn {
                     let record = RunRecord {
                         batch_id: batch_id.clone(),
@@ -194,6 +181,7 @@ pub fn spawn_batch(
                         n_vessels,
                         completed_at,
                         kpi: kpi.clone(),
+                        iwrap_nc_per_year: iwrap_nc,
                         log_path: log_path.clone(),
                     };
                     if let Ok(c) = conn.lock() {
@@ -202,8 +190,8 @@ pub fn spawn_batch(
                 }
 
                 let csv_row = format!(
-                    "{scenario:?},{method:?},{seed},{:.6}\n",
-                    kpi.collision_per_1k_hrs,
+                    "{scenario:?},{method:?},{seed},{:.6},{:.6}\n",
+                    kpi.collision_per_1k_hrs, iwrap_nc,
                 );
                 if let Ok(_guard) = csv_mutex.lock() {
                     if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&csv_path) {
@@ -216,19 +204,24 @@ pub fn spawn_batch(
                     method: format!("{method:?}"),
                     seed,
                     kpi,
+                    iwrap_nc_per_year: iwrap_nc,
                 };
                 if let Ok(mut lock) = batch2.lock() {
                     lock.completed += 1;
                     lock.results.push(result);
                 }
+                publish_status(&status_tx, &batch2);
             } else if let Ok(mut lock) = batch2.lock() {
                 lock.failed += 1;
+                drop(lock);
+                publish_status(&status_tx, &batch2);
             }
         });
 
         if let Ok(mut lock) = batch2.lock() {
             lock.running = false;
         }
+        publish_status(&status_tx, &batch2);
     });
 
     batch

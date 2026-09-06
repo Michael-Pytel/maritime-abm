@@ -1,112 +1,38 @@
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Json, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Json, Response,
+    },
 };
-use serde::{Deserialize, Serialize};
+use futures_util::stream::Stream;
+use serde::Deserialize;
 use serde_json::{json, Value};
-use simulation::scenario::{Method, Scenario, SimConfig};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use simulation::scenario::{Method, Scenario};
+use std::{convert::Infallible, sync::Arc, time::Duration};
+use tokio::sync::{broadcast, Mutex};
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio_stream::StreamExt as _;
 use uuid::Uuid;
 
-use crate::runner::{spawn_batch, spawn_sim, SimHandle};
+use crate::runner::spawn_batch;
 use crate::stats::{compute_hypothesis_tests, BatchState};
 
 pub struct AppState {
-    pub handle: Mutex<Option<SimHandle>>,
     pub batch: Mutex<Option<Arc<std::sync::Mutex<BatchState>>>>,
+    /// Fan-out channel for batch progress SSE (`/sim/batch/events`).
+    pub status_tx: broadcast::Sender<String>,
 }
 
 impl AppState {
     pub fn new() -> Arc<Self> {
+        let (status_tx, _) = broadcast::channel(64);
         Arc::new(Self {
-            handle: Mutex::new(None),
             batch: Mutex::new(None),
+            status_tx,
         })
     }
-}
-
-// ── Live simulation ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct StartRequest {
-    pub scenario: Option<String>,
-    pub method: Option<String>,
-    pub seed: Option<u64>,
-    pub n_ticks: Option<u32>,
-    pub n_vessels: Option<u32>,
-    pub loop_mode: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StartResponse {
-    pub status: String,
-    pub seed: u64,
-}
-
-pub async fn post_start(
-    State(app): State<Arc<AppState>>,
-    Json(req): Json<StartRequest>,
-) -> Result<Json<StartResponse>, (StatusCode, String)> {
-    let scenario = match req.scenario.as_deref() {
-        Some("StormCorridor") => Scenario::StormCorridor,
-        Some("BlindShore") => Scenario::BlindShore,
-        Some("DeepWaterRescue") => Scenario::DeepWaterRescue,
-        _ => Scenario::CalmPassage,
-    };
-    let method = match req.method.as_deref() {
-        Some("BaselineA") => Method::BaselineA,
-        Some("BaselineB") => Method::BaselineB,
-        _ => Method::ProposedSystem,
-    };
-    let seed = req.seed.unwrap_or(42);
-    let mut config = SimConfig::for_scenario(scenario, method, seed);
-
-    if let Some(v) = req.n_ticks {
-        config.n_ticks = v;
-    }
-    if let Some(v) = req.n_vessels {
-        config.n_vessels = v;
-    }
-    if let Some(v) = req.loop_mode {
-        config.loop_mode = v;
-    }
-    config.compute_field_units();
-
-    let handle =
-        spawn_sim(config).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let mut lock = app.handle.lock().await;
-    if let Some(old) = lock.take() {
-        let _ = old.stop_tx.send(true);
-    }
-    *lock = Some(handle);
-
-    Ok(Json(StartResponse {
-        status: "started".into(),
-        seed,
-    }))
-}
-
-pub async fn post_stop(State(app): State<Arc<AppState>>) -> Json<Value> {
-    let mut lock = app.handle.lock().await;
-    if let Some(handle) = lock.take() {
-        let _ = handle.stop_tx.send(true);
-        Json(json!({ "status": "stopped" }))
-    } else {
-        Json(json!({ "status": "no_run_active" }))
-    }
-}
-
-pub async fn get_kpi(State(app): State<Arc<AppState>>) -> Json<Value> {
-    let lock = app.handle.lock().await;
-    if let Some(handle) = &*lock {
-        if let Ok(kpi) = handle.latest_kpi.lock() {
-            return Json(serde_json::to_value(&*kpi).unwrap_or(json!({})));
-        }
-    }
-    Json(json!({ "error": "no_run_active" }))
 }
 
 pub async fn get_health() -> Json<Value> {
@@ -200,6 +126,7 @@ pub async fn post_batch(
         batch_id.clone(),
         config_override,
         label.clone(),
+        app.status_tx.clone(),
     );
 
     let total = batch.lock().map_or(0, |s| s.total);
@@ -213,19 +140,36 @@ pub async fn get_batch_status(State(app): State<Arc<AppState>>) -> Json<Value> {
     let lock = app.batch.lock().await;
     if let Some(batch) = &*lock {
         if let Ok(state) = batch.lock() {
-            #[allow(clippy::cast_precision_loss)]
-            let progress_pct = state.completed as f64 / state.total.max(1) as f64 * 100.0;
-            return Json(json!({
-                "batch_id": state.batch_id,
-                "total": state.total,
-                "completed": state.completed,
-                "failed": state.failed,
-                "running": state.running,
-                "progress_pct": progress_pct,
-            }));
+            return Json(state.status_json());
         }
     }
     Json(json!({ "status": "no_batch" }))
+}
+
+/// Server-Sent Events stream of batch progress (replaces 2.5 s frontend polling).
+///
+/// Emits the same JSON shape as `GET /sim/batch/status` whenever a run completes
+/// or the batch finishes. Sends the current snapshot immediately on connect.
+pub async fn get_batch_events(
+    State(app): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = app.status_tx.subscribe();
+
+    // Snapshot current status so a late subscriber sees progress immediately.
+    let initial = {
+        let lock = app.batch.lock().await;
+        lock.as_ref()
+            .and_then(|b| b.lock().ok().map(|s| s.status_json().to_string()))
+            .unwrap_or_else(|| json!({ "status": "no_batch", "running": false }).to_string())
+    };
+    let _ = app.status_tx.send(initial);
+
+    let stream = BroadcastStream::new(rx).filter_map(|msg| match msg {
+        Ok(data) => Some(Ok(Event::default().data(data))),
+        Err(BroadcastStreamRecvError::Lagged(_)) => None,
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 pub async fn get_batch_results(State(app): State<Arc<AppState>>) -> Json<Value> {
@@ -291,6 +235,7 @@ fn load_results_from_disk() -> Vec<crate::stats::BatchResult> {
             method,
             seed,
             kpi,
+            iwrap_nc_per_year: v["iwrap_nc_per_year"].as_f64().unwrap_or(0.0),
         });
     }
     results

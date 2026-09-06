@@ -10,6 +10,9 @@ pub struct BatchResult {
     pub method: String,
     pub seed: u64,
     pub kpi: KpiSnapshot,
+    /// Offline IWRAP Mk II expected collisions/year for this run's fleet/network.
+    #[serde(default)]
+    pub iwrap_nc_per_year: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +23,23 @@ pub struct BatchState {
     pub failed: usize,
     pub running: bool,
     pub results: Vec<BatchResult>,
+}
+
+impl BatchState {
+    /// JSON payload for `/sim/batch/status` and SSE events.
+    #[must_use]
+    pub fn status_json(&self) -> serde_json::Value {
+        #[allow(clippy::cast_precision_loss)]
+        let progress_pct = self.completed as f64 / self.total.max(1) as f64 * 100.0;
+        serde_json::json!({
+            "batch_id": self.batch_id,
+            "total": self.total,
+            "completed": self.completed,
+            "failed": self.failed,
+            "running": self.running,
+            "progress_pct": progress_pct,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

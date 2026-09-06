@@ -33,6 +33,8 @@ pub struct RunRecord {
     pub n_vessels: u32,
     pub completed_at: u64,
     pub kpi: KpiSnapshot,
+    /// Offline IWRAP Mk II expected collisions/year for this run's network.
+    pub iwrap_nc_per_year: f64,
     pub log_path: String,
 }
 
@@ -43,6 +45,7 @@ impl RunRecord {
             method: self.method,
             seed: self.seed,
             kpi: self.kpi,
+            iwrap_nc_per_year: self.iwrap_nc_per_year,
         }
     }
 }
@@ -92,6 +95,10 @@ pub fn open(path: &str) -> Result<Connection> {
         "ALTER TABLE runs ADD COLUMN params TEXT NOT NULL DEFAULT '{}'",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE runs ADD COLUMN iwrap_nc_per_year REAL NOT NULL DEFAULT 0",
+        [],
+    );
     Ok(conn)
 }
 
@@ -102,8 +109,8 @@ pub fn insert_run(conn: &Connection, r: &RunRecord) -> Result<()> {
         "INSERT OR REPLACE INTO runs
             (batch_id, label, params, scenario, method, seed, n_ticks, n_vessels,
              completed_at, fatal_per_1k_hrs, collision_per_1k_hrs, survival_ratio,
-             avg_tta_hours, evac_activation_rate, mean_p_prep, log_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+             avg_tta_hours, evac_activation_rate, mean_p_prep, iwrap_nc_per_year, log_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             r.batch_id,
             r.label,
@@ -120,6 +127,7 @@ pub fn insert_run(conn: &Connection, r: &RunRecord) -> Result<()> {
             r.kpi.avg_tta_hours,
             r.kpi.evac_activation_rate,
             r.kpi.mean_p_prep,
+            r.iwrap_nc_per_year,
             r.log_path,
         ],
     )?;
@@ -149,6 +157,9 @@ fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<RunRecord> {
             evac_activation_rate: row.get("evac_activation_rate")?,
             mean_p_prep: row.get("mean_p_prep")?,
         },
+        iwrap_nc_per_year: row
+            .get::<_, Option<f64>>("iwrap_nc_per_year")?
+            .unwrap_or(0.0),
         log_path: row
             .get::<_, Option<String>>("log_path")?
             .unwrap_or_default(),
@@ -259,6 +270,7 @@ fn records_to_parquet(recs: &[RunRecord]) -> Result<Vec<u8>> {
         Field::new("avg_tta_hours", DataType::Float64, false),
         Field::new("evac_activation_rate", DataType::Float64, false),
         Field::new("mean_p_prep", DataType::Float64, false),
+        Field::new("iwrap_nc_per_year", DataType::Float64, false),
     ]));
 
     let batch = RecordBatch::try_new(
@@ -306,6 +318,9 @@ fn records_to_parquet(recs: &[RunRecord]) -> Result<Vec<u8>> {
             )),
             Arc::new(Float64Array::from_iter_values(
                 recs.iter().map(|r| r.kpi.mean_p_prep),
+            )),
+            Arc::new(Float64Array::from_iter_values(
+                recs.iter().map(|r| r.iwrap_nc_per_year),
             )),
         ],
     )?;
@@ -392,6 +407,7 @@ mod tests {
                 evac_activation_rate: 0.3,
                 mean_p_prep: 0.7,
             },
+            iwrap_nc_per_year: 0.01,
             log_path: format!("outputs/{batch_id}_{seed}.jsonl"),
         }
     }
