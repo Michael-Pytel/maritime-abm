@@ -433,6 +433,8 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
     );
 
     // Halo ring for avoiding / anchored vessels (drawn under the icons).
+    // No position tween — interpolating a filtered subset makes rings slide
+    // between unrelated vessels when the avoiding set changes each frame.
     const flagged = vessels.filter((v) => v.avoiding || v.anchored);
     if (flagged.length > 0) {
       ls.push(
@@ -446,7 +448,6 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
           stroked: true,
           getLineColor: (d) => (d.avoiding ? [...C.avoiding, 230] : [...C.anchored, 230]) as [number, number, number, number],
           lineWidthMinPixels: 2,
-          transitions: move,
         }),
       );
     }
