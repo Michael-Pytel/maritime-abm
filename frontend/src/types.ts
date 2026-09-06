@@ -183,6 +183,8 @@ export interface BatchResult {
   method: string;
   seed: number;
   kpi: KpiSnapshot;
+  /** Offline IWRAP Mk II expected collisions/year for this run's network. */
+  iwrap_nc_per_year?: number;
 }
 
 export interface HypothesisResult {
@@ -211,6 +213,8 @@ export interface RunManifest {
   n_vessels: number;
   completed_at: number;
   kpis: KpiSnapshot;
+  /** Offline IWRAP Mk II expected collisions/year (stamped at batch write). */
+  iwrap_nc_per_year?: number;
   /** True when a .jsonl tick-log exists alongside the manifest. */
   has_log?: boolean;
 }

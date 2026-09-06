@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
 import type { usePlayback } from "../hooks/usePlayback";
 import type { BatchStatus, RunManifest } from "../types";
 import {
@@ -19,7 +19,6 @@ export default function RunsPanel({ pb }: { pb: PB }) {
   const [posting, setPosting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [overrideText, setOverrideText] = useState("");
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const running = status?.running === true;
 
@@ -27,17 +26,33 @@ export default function RunsPanel({ pb }: { pb: PB }) {
   const overrideErr = overrideText.trim() && override === null ? "Invalid JSON object" : null;
   const labelPreview = override && Object.keys(override).length ? deriveLabel(override) : "default";
 
-  const poll = useCallback(() => {
+  const refresh = useCallback(() => {
     fetch(`${API}/sim/batch/status`).then(r => r.json() as Promise<BatchStatus>).then(setStatus).catch(() => {});
     pb.refreshRuns();
   }, [pb]);
 
-  // Poll status + runs while a batch runs so the grid fills live.
+  // SSE push for batch progress (replaces 2.5 s polling). Always connected so a
+  // late-open tab still sees an in-flight batch; falls back to one-shot refresh.
   useEffect(() => {
-    if (!running) { if (pollRef.current) clearInterval(pollRef.current); return; }
-    pollRef.current = setInterval(poll, 2500);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [running, poll]);
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API}/sim/batch/events`);
+      es.onmessage = (ev) => {
+        try {
+          const s = JSON.parse(ev.data) as BatchStatus & { status?: string };
+          if (s.status === "no_batch" && s.running !== true) return;
+          if (typeof s.total === "number") setStatus(s);
+          if (s.running === false || (typeof s.completed === "number" && s.completed > 0)) {
+            pb.refreshRuns();
+          }
+        } catch { /* ignore malformed frames */ }
+      };
+      es.onerror = () => { /* EventSource auto-reconnects */ };
+    } catch {
+      refresh();
+    }
+    return () => { es?.close(); };
+  }, [pb, refresh]);
 
   async function launch() {
     if (overrideErr) return;
@@ -146,7 +161,7 @@ export default function RunsPanel({ pb }: { pb: PB }) {
       <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <SectionLabel>Completed runs · {playable.length}</SectionLabel>
-          <button onClick={poll} title="Refresh" style={{ background: "none", border: "none", color: color.faint, cursor: "pointer", fontSize: 12 }}>⟳</button>
+          <button onClick={refresh} title="Refresh" style={{ background: "none", border: "none", color: color.faint, cursor: "pointer", fontSize: 12 }}>⟳</button>
         </div>
         {playable.length === 0 && (
           <div style={{ fontSize: 11, color: color.faint, lineHeight: 1.6, padding: "8px 0" }}>
@@ -178,6 +193,7 @@ const RunGrid = memo(function RunGrid({
 function RunCard({ run, selected, onSelect }: { run: RunManifest; selected: boolean; onSelect: () => void }) {
   const col = METHOD_COLORS[run.method] ?? color.accent;
   const coll = run.kpis?.collision_per_1k_hrs;
+  const nc = run.iwrap_nc_per_year;
   return (
     <button
       onClick={onSelect}
@@ -193,6 +209,11 @@ function RunCard({ run, selected, onSelect }: { run: RunManifest; selected: bool
       <span style={{ fontSize: 10, color: col }}>{methodShort(run.method)}</span>
       <span style={{ fontSize: 10, color: color.faint }}>#{run.seed}</span>
       <span style={{ flex: 1 }} />
+      {typeof nc === "number" && nc > 0 && (
+        <span style={{ fontSize: 10, color: color.muted, fontVariantNumeric: "tabular-nums" }} title="IWRAP N_c / yr">
+          Nc {nc.toFixed(3)}
+        </span>
+      )}
       {typeof coll === "number" && (
         <span style={{ fontSize: 10, color: color.sub, fontVariantNumeric: "tabular-nums" }} title="collisions / 1k hrs">
           {coll.toFixed(2)}
