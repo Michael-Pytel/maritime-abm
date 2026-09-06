@@ -336,9 +336,9 @@ Foundering starts the liferaft chain under International Aeronautical and Mariti
   \draw[->] (E) -- node[lab, below]{not in time} (L);
 
   \draw[->, dashed, gray!70!black] (R.east) -- ++(0.9,0)
-    node[lab, gray!70!black, right]{respawn};
+    node[lab, text=gray!70!black, right]{respawn};
   \draw[->, dashed, gray!70!black] (L.east) -- ++(0.9,0)
-    node[lab, gray!70!black, right]{respawn};
+    node[lab, text=gray!70!black, right]{respawn};
 \end{tikzpicture}%
 }
 \caption{Vessel state machine. Foundering collision $\to$ \textsc{Evac}; SAR yields \textsc{Rescued} (Eq.~\ref{eq:cdp}) or \textsc{Lost}. Terminal ships respawn to keep fleet size.}
@@ -444,12 +444,13 @@ Head-on, overtaking, and crossing candidate counts follow the usual IWRAP forms 
 
 The three methods of Section~\ref{sec:goal} differ only by fatigue build-rate $m$ (Eq.~\ref{eq:m}), weather/storm speed awareness (Section~\ref{sec:speed}), and preparedness weight $\alpha_M$ below. SIMCOL parameters are shared. Table~\ref{tab:scenarios} lists the four scenarios. Each condition uses $30$ seeds and $2880$ ticks ($360$ runs).
 
-\begin{table*}[t]
+\begin{table}[t]
     \caption{Scenario summary ($30$ seeds, $2880$ ticks/run).}
     \label{tab:scenarios}
     \centering
     \small
-    \begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}Xcc@{}}
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabularx}{\columnwidth}{@{}l>{\raggedright\arraybackslash}Xcc@{}}
         \toprule
         Scenario & Key conditions & Ships & Hyp. \\
         \midrule
@@ -467,7 +468,7 @@ The three methods of Section~\ref{sec:goal} differ only by fatigue build-rate $m
         15 & H2 \\
         \bottomrule
     \end{tabularx}
-\end{table*}
+\end{table}
 
 \subsection{Key Performance Indicators}
 
@@ -477,12 +478,13 @@ Table~\ref{tab:kpis} defines the six hypothesis KPIs. Ship-hours add $0.25$\,h p
 \end{equation*}
 Diagnostic counters (collision-type mix, MOB tallies) are logged but not entered into the Holm battery.
 
-\begin{table*}[t]
+\begin{table}[t]
     \caption{KPI definitions and hypothesis links.}
     \label{tab:kpis}
     \centering
     \small
-    \begin{tabularx}{\textwidth}{@{}clXc@{}}
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabularx}{\columnwidth}{@{}cl>{\raggedright\arraybackslash}Xc@{}}
         \toprule
         \# & KPI & Definition & Hyp. \\
         \midrule
@@ -506,7 +508,7 @@ Diagnostic counters (collision-type mix, MOB tallies) are logged but not entered
         & mech. \\
         \bottomrule
     \end{tabularx}
-\end{table*}
+\end{table}
 
 \subsection{Statistical Analysis}
 \label{sec:stats}
@@ -518,7 +520,7 @@ For each (KPI $\times$ scenario $\times$ method pair) we use a two-tailed Mann--
 \label{sec:implementation}
 % ==================================================================
 
-The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE). Each finished run writes a JSON Lines (JSONL) tick log (every ten ticks), a manifest, and a SQLite results row. A React workbench (deck.gl / MapLibre) replays completed runs.
+The engine is Rust on krABMaga~\cite{krabmaga2023}. An Axum HTTP API launches factorial batches (Rayon) and streams progress with Server-Sent Events (SSE). Each finished run writes a JSON Lines (JSONL) tick log (every ten ticks), a manifest, and a SQLite results row. A React workbench (deck.gl / MapLibre) launches batches and replays completed runs (Appendix~\ref{apx:gui}).
 
 \subsection{Tick Ordering}
 \label{sec:loop}
@@ -564,12 +566,14 @@ We report four complementary experiment tiers. (i)~The \emph{definitive} factori
 
 Table~\ref{tab:results-means} lists mean $\pm$ population SD for the three primary KPIs. Figure~\ref{fig:kpi-dist} shows the full per-run distributions. Under Baseline~A, Calm Passage collisions sit at $0.60\pm0.41$ per $1\,000$ ship-hours (inside the $0.5$--$1.5$ calibration band). Storm Corridor raises that rate to $1.48\pm0.71$ ($2.48\times$ calm). Blind Shore is the most collision-dense setting ($\approx1.4$--$1.7$), while Deep Water Rescue remains sparse ($\approx0.42$--$0.49$) but carries the only non-negligible fatal base rates.
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{Definitive batch means $\pm$ SD ($30$ seeds). Collisions and fatals per $1\,000$ ship-hours; $P_{\mathrm{prep}}$ dimensionless.}
 \label{tab:results-means}
-\small
-\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}Xccc@{}}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}llccc@{}}
 \toprule
 Scenario & Method & Collisions & Fatals & $P_{\mathrm{prep}}$ \\
 \midrule
@@ -593,8 +597,9 @@ Deep Water
   & B & $0.44\pm0.35$ & $0.070\pm0.150$ & $0.55\pm0.04$ \\
   & P & $0.42\pm0.41$ & $0.023\pm0.056$ & $0.65\pm0.04$ \\
 \bottomrule
-\end{tabularx}
-\end{table*}
+\end{tabular}%
+}
+\end{table}
 
 \begin{figure*}[t]
 \centering
@@ -700,12 +705,12 @@ Dense & $105$ & $0.48$ & $1.85\times$ \\
 \end{tabular}
 \end{table}
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/route_density.png}
+\includegraphics[width=\columnwidth]{figures/route_density.png}
 \caption{Tier-2 collisions by route network, method, and scenario (five seeds).}
 \label{fig:route-density}
-\end{figure*}
+\end{figure}
 
 % ==================================================================
 \section{Discussion}
@@ -788,5 +793,26 @@ Table~\ref{tab:constants} lists principal defaults (overridable in configuration
 \end{table*}
 
 Weather-field process (Mixed preset): regime flips $p_{cs}=0.03$, $p_{sc}=0.08$; Calm/Storm reversion targets $(0.30,0.80,0.25)$ / $(0.72,0.30,0.75)$; up to $8$ storm cells; AR(1) coefficients $(\rho_s,\rho_v,\rho_u)=(0.95,0.90,0.93)$, $(\sigma_s,\sigma_v,\sigma_u)=(0.07,0.06,0.07)$; gradient cap $0.12$. Calm and Stormy presets scale the flip rates.
+
+\section{Playback Workbench}
+\label{apx:gui}
+
+The optional React~19 / Vite workbench is a batch-first client for the Axum API: it does not run the ABM in the browser. Figure~\ref{fig:gui-overview} shows the shell---a permanent left panel beside a full-bleed deck.gl map over a MapLibre basemap. Under \textsc{Runs}, the operator selects scenarios and methods, seed/tick counts, and an optional JSON config override, then posts a factorial batch; progress arrives over SSE while finished seeds appear in a completed-run list. Selecting a seed loads its JSONL tick log and enables the pinned playback dock (play/pause, speed, scrubber). Map layers render vessels and ports, AIS route context, weather/storm overlays, collisions and wrecks, and SAR/MOB entities, with camera and layer toggles in the map chrome.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/gui_overview.png}
+\caption{Workbench shell scrubbed mid-run (Storm Corridor, Proposed, seed~5, tick~$2760$): live KPI tiles, vessel tracks / avoidance rings / collisions on the map, and the storm disc over the southern Baltic.}
+\label{fig:gui-overview}
+\end{figure*}
+
+Figure~\ref{fig:gui-comms} shows the \textsc{Comms} tab: bridge messages up to the scrubber (collision warnings with CPA/TTA, give-way, resume-route, keep-distance). \textsc{Statistics} and \textsc{Telemetry} (not shown) pull pairwise Mann--Whitney / Holm summaries and KPI time series for the active batch. The GUI is for inspection and debugging---all hypothesis numbers in the main text come from exported batch JSON / SQLite, not from the browser.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/gui_comms.png}
+\caption{Comms log for the same Storm Corridor run (hundreds of VHF-style messages with CPA warnings and give-way acknowledgements), with the playback map still showing routes and the moving storm.}
+\label{fig:gui-comms}
+\end{figure*}
 
 \end{document}

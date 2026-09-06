@@ -378,25 +378,11 @@ def fig_route_density() -> None:
         lambda p: Path(p).stem.replace("routes_", "")
     )
     df["scenario_lab"] = df["scenario"].map(SCENARIO_LABEL)
-    df["method_lab"] = df["method"].map(METHOD_LABEL)
     order = ["sparse", "baseline", "dense"]
     df = df[df["network"].isin(order)]
 
-    fig, ax = plt.subplots(figsize=(8.5, 4.0), constrained_layout=True)
-    sns.barplot(
-        data=df,
-        x="network",
-        y="collision_per_1k_hrs",
-        hue="method",
-        hue_order=METHOD_ORDER,
-        palette=PALETTE,
-        order=order,
-        ax=ax,
-        errorbar=None,
-    )
-    # Overlay scenario with hatch via twinned groups: facet instead
-    plt.close(fig)
-
+    # Compact two-panel figure sized for a single Interspeech column;
+    # legend sits inside the Calm panel (empty upper area), not outside.
     g = sns.catplot(
         data=df,
         kind="bar",
@@ -407,18 +393,37 @@ def fig_route_density() -> None:
         hue_order=METHOD_ORDER,
         palette=PALETTE,
         order=order,
-        height=3.4,
-        aspect=0.95,
-        legend=True,
+        height=2.55,
+        aspect=0.78,
+        legend=False,
+        errorbar=None,
     )
     g.set_axis_labels("Route network", "Collisions / 1k ship-hrs")
     g.set_titles("{col_name}")
-    g._legend.set_title("")
-    for t, l in zip(g._legend.texts, ["Baseline A", "Baseline B", "Proposed"]):
-        t.set_text(l)
-    g.fig.suptitle("Tier-2 route-density sensitivity (5 seeds)", y=1.03, fontsize=11)
+    for ax in g.axes.flat:
+        ax.tick_params(axis="x", labelsize=7)
+        ax.tick_params(axis="y", labelsize=7)
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=PALETTE[m])
+        for m in METHOD_ORDER
+    ]
+    g.axes.flat[0].legend(
+        handles,
+        ["Baseline A", "Baseline B", "Proposed"],
+        loc="upper left",
+        frameon=True,
+        fancybox=False,
+        edgecolor="#d1d5db",
+        fontsize=6.5,
+        handlelength=1.0,
+        handletextpad=0.4,
+        borderpad=0.35,
+        labelspacing=0.25,
+    )
+    g.fig.suptitle("Tier-2 route-density (5 seeds)", y=1.02, fontsize=9)
+    g.fig.set_size_inches(3.35, 2.7)
     path = OUT / "route_density.png"
-    g.savefig(path, bbox_inches="tight")
+    g.savefig(path, bbox_inches="tight", dpi=220)
     plt.close(g.fig)
     print("Wrote", path)
 
