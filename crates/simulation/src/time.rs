@@ -21,8 +21,11 @@ pub fn nm_per_tick(speed_kn: f64) -> f64 {
 
 /// Round `hours` of simulated time to an integer tick count.
 #[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn ticks_for_hours(hours: f64) -> u32 {
-    (hours * TICKS_PER_HOUR).round().clamp(0.0, f64::from(u32::MAX)) as u32
+    (hours * TICKS_PER_HOUR)
+        .round()
+        .clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
 /// Round `days` of simulated time to an integer tick count.
