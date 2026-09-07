@@ -56,7 +56,6 @@
                     \item \textbf{Weather / radio:} storms cut VHF/AIS reliability
                     \item \textbf{Crew fatigue:} tired watchkeepers miss or delay CPA warnings
                 \end{itemize}
-                \item Many ABMs treat fatigue as a side model --- not linked to whether the manoeuvre happens
             \end{itemize}
         \end{column}
         \begin{column}{0.3\textwidth}
@@ -214,54 +213,14 @@
 \section{Technical Details}
 % ═══════════════════════════════════════════════════════════════
 
-\begin{frame}{Agent Platform \& Software}
-    \begin{columns}[T]
-        \begin{column}{0.48\textwidth}
-            \textbf{Stack}
-            \begin{itemize}
-                \item Engine: \textbf{Rust} + \textbf{krABMaga 0.6}
-                \item Batches: Axum 0.8, Rayon, SSE
-                \item Store: SQLite + JSONL tick logs
-                \item UI: React 19, Vite, deck.gl~9, MapLibre
-                \item Routes: \texttt{aisprocess} A$^*$ + Python fetchers
-            \end{itemize}
-        \end{column}
-        \begin{column}{0.50\textwidth}
-            \textbf{Agent computing}
-            \begin{itemize}
-                \item \texttt{Agent} trait: \texttt{VesselAgent}, \texttt{PostTickAgent}
-                \item Schedule: vessels order 200, post-tick 1000
-                \item SAR / MOB / PIW: stepped \emph{inside} post-tick (not scheduled)
-                \item No FIPA/ACL --- typed in-sim \texttt{MsgKind} log
-                \item COLREGs dialogue, \texttt{PostTick}-mediated, lossy $P_{\text{comms}}$
-            \end{itemize}
-        \end{column}
-    \end{columns}
-\end{frame}
-
-\begin{frame}{Project Structure}
-    \begin{columns}[T]
-        \begin{column}{0.48\textwidth}
-            \textbf{Engine} (\texttt{crates/simulation/})
-            \begin{itemize}
-                \item \texttt{vessel.rs} --- navigation, fatigue, FSM
-                \item \texttt{state.rs} --- tick / post\_tick pipeline
-                \item \texttt{comms.rs} --- CPA messages \& waypoints
-                \item \texttt{simcol.rs} --- collision damage
-                \item \texttt{sar.rs} --- liferaft \& MOB search
-                \item \texttt{weather.rs} --- $50\times50$ hazard field
-            \end{itemize}
-        \end{column}
-        \begin{column}{0.48\textwidth}
-            \textbf{Repo}
-            \begin{itemize}
-                \item \texttt{crates/api/} --- Axum batches, SSE
-                \item \texttt{frontend/} --- React / deck.gl workbench
-                \item \texttt{data/} --- AIS routes, ports, coastline
-                \item \texttt{report/} --- paper + figures
-            \end{itemize}
-        \end{column}
-    \end{columns}
+\begin{frame}{Software}
+    \begin{itemize}
+        \item Engine: \textbf{Rust} + \textbf{krABMaga 0.6}
+        \item Batches: Axum 0.8, Rayon, SSE
+        \item Store: SQLite + JSONL tick logs
+        \item UI: React 19, Vite, deck.gl~9, MapLibre
+        \item Routes: \texttt{aisprocess} A$^*$ + Python fetchers
+    \end{itemize}
 \end{frame}
 
 \begin{frame}{Agent Types}

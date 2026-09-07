@@ -33,6 +33,26 @@ interface ViewState {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+type PositionMove = { getPosition: { type: "interpolation"; duration: number } };
+
+/** Enable deck.gl position tween only while the id-at-index sequence is unchanged. */
+function useIndexStableMove(
+  items: ReadonlyArray<{ id: number }>,
+  move: PositionMove,
+): PositionMove | undefined {
+  const prevIdsRef = useRef<number[] | null>(null);
+  const ids = items.map((item) => item.id);
+  const prev = prevIdsRef.current;
+  const stable =
+    prev !== null &&
+    ids.length === prev.length &&
+    ids.every((id, i) => id === prev[i]);
+  useEffect(() => {
+    prevIdsRef.current = ids;
+  });
+  return stable ? move : undefined;
+}
+
 /**
  * The min-zoom view: the domain COVERS the viewport (fills both axes, cropping
  * the overflow) rather than being contained inside it — so there is never any
@@ -274,6 +294,13 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
     () => ({ getPosition: { type: "interpolation" as const, duration: transitionMs } }),
     [transitionMs],
   );
+  // deck.gl transitions match objects by array index. When agents spawn or
+  // leave, that remapping makes markers fly across the map — skip the tween
+  // for that frame so newcomers appear at their true position.
+  const vesselMove = useIndexStableMove(vessels, move);
+  const rescueMove = useIndexStableMove(rescueAgents, move);
+  const mobAgentMove = useIndexStableMove(mobAgents, move);
+  const mobPersonMove = useIndexStableMove(mobPersons, move);
   const layers = useMemo(() => {
     const ls: unknown[] = [];
 
@@ -402,7 +429,7 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
         lineWidthMinPixels: 2,
         stroked: true,
         pickable: true,
-        transitions: move,
+        transitions: rescueMove,
       }),
       new ScatterplotLayer<MobAgentSnapshot>({
         id: "mob-agents",
@@ -415,7 +442,7 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
         lineWidthMinPixels: 2,
         stroked: true,
         pickable: true,
-        transitions: move,
+        transitions: mobAgentMove,
       }),
       new ScatterplotLayer<MobPersonSnapshot>({
         id: "mob-persons",
@@ -428,7 +455,7 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
         lineWidthMinPixels: 1,
         stroked: true,
         pickable: true,
-        transitions: move,
+        transitions: mobPersonMove,
       }),
     );
 
@@ -468,12 +495,12 @@ const MapGL = forwardRef<MapHandle, Props>(function MapGL({
         getAngle: (d) => -d.heading_deg,
         getColor: (d) => vesselColor(d),
         pickable: true,
-        transitions: move,
+        transitions: vesselMove,
       }),
     );
 
     return ls;
-  }, [vessels, ports, routes, collisionEvents, rescueAgents, wrecks, mobPersons, mobAgents, storm, showRoutes, currentStep, move, weatherImage, lonMin, latMin, lonMax, latMax]);
+  }, [vessels, ports, routes, collisionEvents, rescueAgents, wrecks, mobPersons, mobAgents, storm, showRoutes, currentStep, move, vesselMove, rescueMove, mobAgentMove, mobPersonMove, weatherImage, lonMin, latMin, lonMax, latMax]);
 
   return (
     <div ref={containerRef} style={{ position: "absolute", inset: 0 }}>
